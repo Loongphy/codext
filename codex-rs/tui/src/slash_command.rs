@@ -23,6 +23,7 @@ pub enum SlashCommand {
     New,
     Resume,
     Fork,
+    Share,
     Init,
     Compact,
     Collab,
@@ -52,6 +53,7 @@ impl SlashCommand {
             SlashCommand::Review => "review my current changes and find issues",
             SlashCommand::Resume => "resume a saved chat",
             SlashCommand::Fork => "fork the current chat",
+            SlashCommand::Share => "share the current chat via object storage",
             // SlashCommand::Undo => "ask Codex to undo a turn",
             SlashCommand::Quit | SlashCommand::Exit => "exit Codex",
             SlashCommand::Diff => "show git diff (including untracked files)",
@@ -85,6 +87,7 @@ impl SlashCommand {
             SlashCommand::New
             | SlashCommand::Resume
             | SlashCommand::Fork
+            | SlashCommand::Share
             | SlashCommand::Init
             | SlashCommand::Compact
             // | SlashCommand::Undo
