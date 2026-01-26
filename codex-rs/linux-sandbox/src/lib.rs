@@ -1,3 +1,10 @@
+//! Linux sandbox helper entry point.
+//!
+//! On Linux, `codex-linux-sandbox` applies:
+//! - in-process restrictions (`no_new_privs` + seccomp), and
+//! - bubblewrap for filesystem isolation.
+#[cfg(target_os = "linux")]
+mod bwrap;
 #[cfg(target_os = "linux")]
 mod landlock;
 #[cfg(target_os = "linux")]
