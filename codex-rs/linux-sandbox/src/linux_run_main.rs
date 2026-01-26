@@ -20,6 +20,14 @@ pub struct LandlockCommand {
     #[arg(long = "sandbox-policy")]
     pub sandbox_policy: codex_core::protocol::SandboxPolicy,
 
+    /// Internal: apply seccomp and `no_new_privs` in the already-sandboxed
+    /// process, then exec the user command.
+    ///
+    /// This exists so we can run bubblewrap first (which may rely on setuid)
+    /// and only tighten with seccomp after the filesystem view is established.
+    #[arg(long = "apply-seccomp-then-exec", hide = true, default_value_t = false)]
+    pub apply_seccomp_then_exec: bool,
+
     /// When set, skip mounting a fresh `/proc` even though PID isolation is
     /// still enabled. This is primarily intended for restrictive container
     /// environments that deny `--proc /proc`.
@@ -34,13 +42,15 @@ pub struct LandlockCommand {
 /// Entry point for the Linux sandbox helper.
 ///
 /// The sequence is:
-/// 1. Apply in-process restrictions (no_new_privs + seccomp).
-/// 2. Wrap the command with bubblewrap when disk writes are restricted.
+/// 1. When needed, wrap the command with bubblewrap to construct the
+///    filesystem view.
+/// 2. Apply in-process restrictions (no_new_privs + seccomp).
 /// 3. `execvp` into the final command.
 pub fn run_main() -> ! {
     let LandlockCommand {
         sandbox_policy_cwd,
         sandbox_policy,
+        apply_seccomp_then_exec,
         no_proc,
         command,
     } = LandlockCommand::parse();
@@ -49,24 +59,31 @@ pub fn run_main() -> ! {
         panic!("No command specified to execute.");
     }
 
-    // When disk writes are restricted, bubblewrap is required to construct the
-    // read-only-by-default filesystem view. Fail fast with an actionable
-    // message before applying other restrictions.
-    if !sandbox_policy.has_full_disk_write_access() {
-        ensure_bwrap_available();
-    }
-
-    if let Err(e) = apply_sandbox_policy_to_current_thread(&sandbox_policy, &sandbox_policy_cwd) {
-        panic!("error applying Linux sandbox restrictions: {e:?}");
+    // Inner stage: apply seccomp/no_new_privs after bubblewrap has already
+    // established the filesystem view.
+    if apply_seccomp_then_exec {
+        if let Err(e) = apply_sandbox_policy_to_current_thread(&sandbox_policy, &sandbox_policy_cwd)
+        {
+            panic!("error applying Linux sandbox restrictions: {e:?}");
+        }
+        exec_or_panic(command);
     }
 
     let command = if sandbox_policy.has_full_disk_write_access() {
+        if let Err(e) = apply_sandbox_policy_to_current_thread(&sandbox_policy, &sandbox_policy_cwd)
+        {
+            panic!("error applying Linux sandbox restrictions: {e:?}");
+        }
         command
     } else {
+        // Outer stage: bubblewrap first, then re-enter this binary in the
+        // sandboxed environment to apply seccomp.
+        ensure_bwrap_available();
+        let inner = build_inner_seccomp_command(&sandbox_policy_cwd, &sandbox_policy, command);
         let options = BwrapOptions {
             mount_proc: !no_proc,
         };
-        create_bwrap_command_args(command, &sandbox_policy, &sandbox_policy_cwd, options)
+        create_bwrap_command_args(inner, &sandbox_policy, &sandbox_policy_cwd, options)
             .unwrap_or_else(|err| panic!("error building bubblewrap command: {err:?}"))
     };
 
@@ -75,6 +92,35 @@ pub fn run_main() -> ! {
         eprintln!("codex-linux-sandbox exec argv: {command:?}");
     }
 
+    exec_or_panic(command);
+}
+
+/// Build the inner command that applies seccomp after bubblewrap.
+fn build_inner_seccomp_command(
+    sandbox_policy_cwd: &PathBuf,
+    sandbox_policy: &codex_core::protocol::SandboxPolicy,
+    command: Vec<String>,
+) -> Vec<String> {
+    #[expect(clippy::expect_used)]
+    let current_exe = std::env::current_exe().expect("Failed to resolve current executable path");
+    let policy_json =
+        serde_json::to_string(sandbox_policy).expect("Failed to serialize sandbox policy");
+
+    let mut inner = vec![
+        current_exe.to_string_lossy().to_string(),
+        "--apply-seccomp-then-exec".to_string(),
+        "--sandbox-policy-cwd".to_string(),
+        sandbox_policy_cwd.to_string_lossy().to_string(),
+        "--sandbox-policy".to_string(),
+        policy_json,
+        "--".to_string(),
+    ];
+    inner.extend(command);
+    inner
+}
+
+/// Exec the provided argv, panicking with context if it fails.
+fn exec_or_panic(command: Vec<String>) -> ! {
     #[expect(clippy::expect_used)]
     let c_command =
         CString::new(command[0].as_str()).expect("Failed to convert command to CString");
