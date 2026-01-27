@@ -40,7 +40,11 @@ use codex_feedback::CodexFeedback;
 use codex_protocol::ThreadId;
 use codex_protocol::protocol::SessionSource;
 use tokio::sync::broadcast;
+use tokio::time::Duration;
+use tokio::time::timeout;
 use toml::Value as TomlValue;
+
+const EXTERNAL_AUTH_REFRESH_TIMEOUT: Duration = Duration::from_secs(10);
 
 #[derive(Clone)]
 struct ExternalAuthRefreshBridge {
@@ -65,13 +69,25 @@ impl ExternalAuthRefresher for ExternalAuthRefreshBridge {
             reason: Self::map_reason(context.reason),
             previous_account_id: context.previous_account_id,
         };
-        let rx = self
+
+        let (request_id, rx) = self
             .outgoing
-            .send_request(ServerRequestPayload::AccountRefreshAuthToken(params))
+            .send_request_with_id(ServerRequestPayload::AccountRefreshAuthToken(params))
             .await;
-        let result = rx.await.map_err(|err| {
-            std::io::Error::other(format!("auth refresh request canceled: {err}"))
-        })?;
+
+        let result = match timeout(EXTERNAL_AUTH_REFRESH_TIMEOUT, rx).await {
+            Ok(result) => result.map_err(|err| {
+                std::io::Error::other(format!("auth refresh request canceled: {err}"))
+            })?,
+            Err(_) => {
+                let _canceled = self.outgoing.cancel_request(&request_id).await;
+                return Err(std::io::Error::other(format!(
+                    "auth refresh request timed out after {}s",
+                    EXTERNAL_AUTH_REFRESH_TIMEOUT.as_secs()
+                )));
+            }
+        };
+
         let response: AccountRefreshAuthTokenResponse =
             serde_json::from_value(result).map_err(std::io::Error::other)?;
 
@@ -289,8 +305,9 @@ impl MessageProcessor {
     }
 
     /// Handle an error object received from the peer.
-    pub(crate) fn process_error(&mut self, err: JSONRPCError) {
+    pub(crate) async fn process_error(&mut self, err: JSONRPCError) {
         tracing::error!("<- error: {:?}", err);
+        self.outgoing.notify_client_error(err.id, err.error).await;
     }
 
     async fn handle_config_read(&self, request_id: RequestId, params: ConfigReadParams) {

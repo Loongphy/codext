@@ -29,6 +29,7 @@ use codex_app_server_protocol::GetAuthStatusParams;
 use codex_app_server_protocol::InitializeParams;
 use codex_app_server_protocol::InterruptConversationParams;
 use codex_app_server_protocol::JSONRPCError;
+use codex_app_server_protocol::JSONRPCErrorError;
 use codex_app_server_protocol::JSONRPCMessage;
 use codex_app_server_protocol::JSONRPCNotification;
 use codex_app_server_protocol::JSONRPCRequest;
@@ -615,6 +616,15 @@ impl McpProcess {
         result: serde_json::Value,
     ) -> anyhow::Result<()> {
         self.send_jsonrpc_message(JSONRPCMessage::Response(JSONRPCResponse { id, result }))
+            .await
+    }
+
+    pub async fn send_error(
+        &mut self,
+        id: RequestId,
+        error: JSONRPCErrorError,
+    ) -> anyhow::Result<()> {
+        self.send_jsonrpc_message(JSONRPCMessage::Error(JSONRPCError { id, error }))
             .await
     }
 

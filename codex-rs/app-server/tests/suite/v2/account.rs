@@ -17,6 +17,8 @@ use codex_app_server_protocol::CancelLoginAccountResponse;
 use codex_app_server_protocol::GetAccountParams;
 use codex_app_server_protocol::GetAccountResponse;
 use codex_app_server_protocol::JSONRPCError;
+use codex_app_server_protocol::JSONRPCErrorError;
+use codex_app_server_protocol::JSONRPCNotification;
 use codex_app_server_protocol::JSONRPCResponse;
 use codex_app_server_protocol::LoginAccountResponse;
 use codex_app_server_protocol::LogoutAccountResponse;
@@ -25,6 +27,8 @@ use codex_app_server_protocol::ServerNotification;
 use codex_app_server_protocol::ServerRequest;
 use codex_app_server_protocol::SetAuthTokenParams;
 use codex_app_server_protocol::SetAuthTokenResponse;
+use codex_app_server_protocol::TurnCompletedNotification;
+use codex_app_server_protocol::TurnStatus;
 use codex_core::auth::AuthCredentialsStoreMode;
 use codex_login::login_with_api_key;
 use codex_protocol::account::PlanType as AccountPlanType;
@@ -430,6 +434,118 @@ async fn external_auth_refreshes_on_unauthorized() -> Result<()> {
         requests[1].header("authorization"),
         Some(format!("Bearer {refreshed_access_token}"))
     );
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn external_auth_refresh_error_fails_turn() -> Result<()> {
+    let codex_home = TempDir::new()?;
+    let mock_server = MockServer::start().await;
+    create_config_toml(
+        codex_home.path(),
+        CreateConfigTomlParams {
+            requires_openai_auth: Some(true),
+            base_url: Some(format!("{}/v1", mock_server.uri())),
+            ..Default::default()
+        },
+    )?;
+    write_models_cache(codex_home.path())?;
+
+    let unauthorized = ResponseTemplate::new(401).set_body_json(json!({
+        "error": { "message": "unauthorized" }
+    }));
+    let _responses_mock =
+        responses::mount_response_sequence(&mock_server, vec![unauthorized]).await;
+
+    let initial_id_token = encode_id_token(
+        &ChatGptIdTokenClaims::new()
+            .email("initial@example.com")
+            .plan_type("pro")
+            .chatgpt_account_id("org-initial"),
+    )?;
+
+    let mut mcp = McpProcess::new_with_env(codex_home.path(), &[("OPENAI_API_KEY", None)]).await?;
+    timeout(DEFAULT_READ_TIMEOUT, mcp.initialize()).await??;
+
+    let set_id = mcp
+        .send_set_auth_token_request(SetAuthTokenParams {
+            access_token: "access-initial".to_string(),
+            id_token: initial_id_token,
+        })
+        .await?;
+    let set_resp: JSONRPCResponse = timeout(
+        DEFAULT_READ_TIMEOUT,
+        mcp.read_stream_until_response_message(RequestId::Integer(set_id)),
+    )
+    .await??;
+    let _ok: SetAuthTokenResponse = to_response(set_resp)?;
+    let _updated = timeout(
+        DEFAULT_READ_TIMEOUT,
+        mcp.read_stream_until_notification_message("account/updated"),
+    )
+    .await??;
+
+    let thread_req = mcp
+        .send_thread_start_request(codex_app_server_protocol::ThreadStartParams {
+            model: Some("mock-model".to_string()),
+            ..Default::default()
+        })
+        .await?;
+    let thread_resp: JSONRPCResponse = timeout(
+        DEFAULT_READ_TIMEOUT,
+        mcp.read_stream_until_response_message(RequestId::Integer(thread_req)),
+    )
+    .await??;
+    let thread = to_response::<codex_app_server_protocol::ThreadStartResponse>(thread_resp)?;
+
+    let turn_req = mcp
+        .send_turn_start_request(codex_app_server_protocol::TurnStartParams {
+            thread_id: thread.thread.id.clone(),
+            input: vec![codex_app_server_protocol::UserInput::Text {
+                text: "Hello".to_string(),
+                text_elements: Vec::new(),
+            }],
+            ..Default::default()
+        })
+        .await?;
+
+    let refresh_req: ServerRequest = timeout(
+        DEFAULT_READ_TIMEOUT,
+        mcp.read_stream_until_request_message(),
+    )
+    .await??;
+    let ServerRequest::AccountRefreshAuthToken { request_id, .. } = refresh_req else {
+        bail!("expected account/refreshAuthToken request, got {refresh_req:?}");
+    };
+
+    mcp.send_error(
+        request_id,
+        JSONRPCErrorError {
+            code: -32_000,
+            message: "refresh failed".to_string(),
+            data: None,
+        },
+    )
+    .await?;
+
+    let _turn_resp: JSONRPCResponse = timeout(
+        DEFAULT_READ_TIMEOUT,
+        mcp.read_stream_until_response_message(RequestId::Integer(turn_req)),
+    )
+    .await??;
+    let completed_notif: JSONRPCNotification = timeout(
+        DEFAULT_READ_TIMEOUT,
+        mcp.read_stream_until_notification_message("turn/completed"),
+    )
+    .await??;
+    let completed: TurnCompletedNotification = serde_json::from_value(
+        completed_notif
+            .params
+            .expect("turn/completed params must be present"),
+    )?;
+    assert_eq!(completed.turn.status, TurnStatus::Failed);
+    assert!(completed.turn.error.is_some());
 
     Ok(())
 }

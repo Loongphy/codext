@@ -634,6 +634,7 @@ impl CodexMessageProcessor {
         if self.auth_manager.is_external_auth_active() {
             return Err(self.external_auth_active_error());
         }
+
         if matches!(
             self.config.forced_login_method,
             Some(ForcedLoginMethod::Chatgpt)
