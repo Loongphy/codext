@@ -1102,8 +1102,7 @@ impl AuthManager {
             if actual_workspace_id != Some(expected_workspace_id) {
                 return Err(RefreshTokenError::Transient(std::io::Error::other(
                     format!(
-                        "external auth refresh returned workspace {:?}, expected {:?}",
-                        actual_workspace_id, expected_workspace_id
+                        "external auth refresh returned workspace {actual_workspace_id:?}, expected {expected_workspace_id:?}",
                     ),
                 )));
             }
