@@ -223,6 +223,81 @@ async fn set_auth_token_updates_account_and_notifies() -> Result<()> {
     Ok(())
 }
 
+#[tokio::test]
+async fn account_read_refresh_token_is_noop_in_external_mode() -> Result<()> {
+    let codex_home = TempDir::new()?;
+    create_config_toml(
+        codex_home.path(),
+        CreateConfigTomlParams {
+            requires_openai_auth: Some(true),
+            ..Default::default()
+        },
+    )?;
+    write_models_cache(codex_home.path())?;
+
+    let id_token = encode_id_token(
+        &ChatGptIdTokenClaims::new()
+            .email("embedded@example.com")
+            .plan_type("pro")
+            .chatgpt_account_id("org-embedded"),
+    )?;
+
+    let mut mcp = McpProcess::new_with_env(codex_home.path(), &[("OPENAI_API_KEY", None)]).await?;
+    timeout(DEFAULT_READ_TIMEOUT, mcp.initialize()).await??;
+
+    let set_id = mcp
+        .send_set_auth_token_request(SetAuthTokenParams {
+            access_token: "access-embedded".to_string(),
+            id_token,
+        })
+        .await?;
+    let set_resp: JSONRPCResponse = timeout(
+        DEFAULT_READ_TIMEOUT,
+        mcp.read_stream_until_response_message(RequestId::Integer(set_id)),
+    )
+    .await??;
+    let _ok: SetAuthTokenResponse = to_response(set_resp)?;
+    let _updated = timeout(
+        DEFAULT_READ_TIMEOUT,
+        mcp.read_stream_until_notification_message("account/updated"),
+    )
+    .await??;
+
+    let get_id = mcp
+        .send_get_account_request(GetAccountParams {
+            refresh_token: true,
+        })
+        .await?;
+    let get_resp: JSONRPCResponse = timeout(
+        DEFAULT_READ_TIMEOUT,
+        mcp.read_stream_until_response_message(RequestId::Integer(get_id)),
+    )
+    .await??;
+    let account: GetAccountResponse = to_response(get_resp)?;
+    assert_eq!(
+        account,
+        GetAccountResponse {
+            account: Some(Account::Chatgpt {
+                email: "embedded@example.com".to_string(),
+                plan_type: AccountPlanType::Pro,
+            }),
+            requires_openai_auth: true,
+        }
+    );
+
+    let refresh_request = timeout(
+        Duration::from_millis(250),
+        mcp.read_stream_until_request_message(),
+    )
+    .await;
+    assert!(
+        refresh_request.is_err(),
+        "external mode should not emit account/refreshAuthToken for refreshToken=true"
+    );
+
+    Ok(())
+}
+
 async fn respond_to_refresh_request(
     mcp: &mut McpProcess,
     access_token: &str,

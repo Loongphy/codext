@@ -1114,6 +1114,9 @@ impl CodexMessageProcessor {
     }
 
     async fn refresh_token_if_requested(&self, do_refresh: bool) {
+        if self.auth_manager.is_external_auth_active() {
+            return;
+        }
         if do_refresh && let Err(err) = self.auth_manager.refresh_token().await {
             tracing::warn!("failed to refresh token while getting account: {err}");
         }

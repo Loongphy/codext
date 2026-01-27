@@ -51,7 +51,6 @@ impl ExternalAuthRefreshBridge {
     fn map_reason(reason: ExternalAuthRefreshReason) -> AccountRefreshAuthTokenReason {
         match reason {
             ExternalAuthRefreshReason::Unauthorized => AccountRefreshAuthTokenReason::Unauthorized,
-            ExternalAuthRefreshReason::Manual => AccountRefreshAuthTokenReason::Manual,
         }
     }
 }
