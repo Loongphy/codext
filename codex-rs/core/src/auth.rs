@@ -593,23 +593,44 @@ fn auth_dot_json_from_external(external: &ExternalAuthState, id_token: IdTokenIn
 
 use std::sync::RwLock;
 
+#[derive(Clone, Debug)]
+enum AuthState {
+    None,
+    Managed(CodexAuth),
+    External {
+        state: ExternalAuthState,
+        auth: CodexAuth,
+    },
+}
+
+impl AuthState {
+    fn managed_auth(&self) -> Option<&CodexAuth> {
+        match self {
+            AuthState::Managed(auth) => Some(auth),
+            AuthState::None => None,
+            AuthState::External { .. } => None,
+        }
+    }
+
+    fn external_state(&self) -> Option<&ExternalAuthState> {
+        match self {
+            AuthState::External { state, .. } => Some(state),
+            _ => None,
+        }
+    }
+}
+
 /// Internal cached auth state.
 struct CachedAuth {
-    managed_auth: Option<CodexAuth>,
-    external_state: Option<ExternalAuthState>,
-    external_auth: Option<CodexAuth>,
+    state: AuthState,
+    /// Callback used to refresh external auth by asking the parent app for new tokens.
     external_refresher: Option<Arc<dyn ExternalAuthRefresher>>,
 }
 
 impl Debug for CachedAuth {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("CachedAuth")
-            .field("managed_auth", &self.managed_auth)
-            .field("external_state", &self.external_state)
-            .field(
-                "external_auth",
-                &self.external_auth.as_ref().map(|a| a.mode),
-            )
+            .field("state", &self.state)
             .field(
                 "external_refresher",
                 &self.external_refresher.as_ref().map(|_| "present"),
@@ -768,12 +789,13 @@ impl AuthManager {
         )
         .ok()
         .flatten();
+        let state = managed_auth
+            .map(AuthState::Managed)
+            .unwrap_or(AuthState::None);
         Self {
             codex_home,
             inner: RwLock::new(CachedAuth {
-                managed_auth,
-                external_state: None,
-                external_auth: None,
+                state,
                 external_refresher: None,
             }),
             enable_codex_api_key_env,
@@ -786,9 +808,7 @@ impl AuthManager {
     /// Create an AuthManager with a specific CodexAuth, for testing only.
     pub fn from_auth_for_testing(auth: CodexAuth) -> Arc<Self> {
         let cached = CachedAuth {
-            managed_auth: Some(auth),
-            external_state: None,
-            external_auth: None,
+            state: AuthState::Managed(auth),
             external_refresher: None,
         };
 
@@ -805,9 +825,7 @@ impl AuthManager {
     /// Create an AuthManager with a specific CodexAuth and codex home, for testing only.
     pub fn from_auth_for_testing_with_home(auth: CodexAuth, codex_home: PathBuf) -> Arc<Self> {
         let cached = CachedAuth {
-            managed_auth: Some(auth),
-            external_state: None,
-            external_auth: None,
+            state: AuthState::Managed(auth),
             external_refresher: None,
         };
         Arc::new(Self {
@@ -821,11 +839,10 @@ impl AuthManager {
 
     /// Current cached auth (clone) without attempting a refresh.
     pub fn auth_cached(&self) -> Option<CodexAuth> {
-        self.inner.read().ok().and_then(|c| {
-            if let Some(external) = c.external_auth.clone() {
-                return Some(external);
-            }
-            c.managed_auth.clone()
+        self.inner.read().ok().and_then(|c| match &c.state {
+            AuthState::External { auth, .. } => Some(auth.clone()),
+            AuthState::Managed(auth) => Some(auth.clone()),
+            AuthState::None => None,
         })
     }
 
@@ -873,7 +890,7 @@ impl AuthManager {
         ReloadOutcome::Reloaded
     }
 
-    fn auths_equal(a: &Option<CodexAuth>, b: &Option<CodexAuth>) -> bool {
+    fn auths_equal(a: Option<&CodexAuth>, b: Option<&CodexAuth>) -> bool {
         match (a, b) {
             (None, None) => true,
             (Some(a), Some(b)) => a == b,
@@ -893,9 +910,13 @@ impl AuthManager {
 
     fn set_managed_auth(&self, new_auth: Option<CodexAuth>) -> bool {
         if let Ok(mut guard) = self.inner.write() {
-            let changed = !AuthManager::auths_equal(&guard.managed_auth, &new_auth);
+            let previous = guard.state.managed_auth().map(Clone::clone);
+            let changed = !AuthManager::auths_equal(previous.as_ref(), new_auth.as_ref());
             tracing::info!("Reloaded auth, changed: {changed}");
-            guard.managed_auth = new_auth;
+            guard.state = match guard.state.clone() {
+                AuthState::External { state, auth } => AuthState::External { state, auth },
+                _ => new_auth.map(AuthState::Managed).unwrap_or(AuthState::None),
+            };
             changed
         } else {
             false
@@ -933,8 +954,7 @@ impl AuthManager {
         self.inner
             .read()
             .ok()
-            .and_then(|guard| guard.external_auth.as_ref().map(|_| ()))
-            .is_some()
+            .is_some_and(|guard| matches!(guard.state, AuthState::External { .. }))
     }
 
     pub fn set_external_auth(&self, mut external: ExternalAuthState) -> bool {
@@ -954,9 +974,12 @@ impl AuthManager {
         };
 
         if let Ok(mut guard) = self.inner.write() {
-            let changed = guard.external_state.as_ref() != Some(&external);
-            guard.external_state = Some(external);
-            guard.external_auth = Some(external_auth);
+            let previous_state = guard.state.external_state();
+            let changed = previous_state != Some(&external);
+            guard.state = AuthState::External {
+                state: external,
+                auth: external_auth,
+            };
             tracing::info!("Set external auth, changed: {changed}");
             changed
         } else {
@@ -966,9 +989,12 @@ impl AuthManager {
 
     pub fn clear_external_auth(&self) -> bool {
         if let Ok(mut guard) = self.inner.write() {
-            let changed = guard.external_state.is_some();
-            guard.external_state = None;
-            guard.external_auth = None;
+            let changed = matches!(guard.state, AuthState::External { .. });
+            guard.state = if changed {
+                AuthState::None
+            } else {
+                guard.state.clone()
+            };
             tracing::info!("Cleared external auth, changed: {changed}");
             changed
         } else {
@@ -1071,8 +1097,8 @@ impl AuthManager {
         let (refresher, previous_account_id) = match self.inner.read() {
             Ok(guard) => {
                 let previous_account_id = guard
-                    .external_state
-                    .as_ref()
+                    .state
+                    .external_state()
                     .and_then(|state| state.account_id.clone());
                 (guard.external_refresher.clone(), previous_account_id)
             }
