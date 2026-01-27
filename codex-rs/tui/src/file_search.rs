@@ -164,7 +164,7 @@ impl FileSearchManager {
     ) {
         let compute_indices = true;
         std::thread::spawn(move || {
-            let matches = file_search::run(
+            let matches = file_search::run_including_directories(
                 &query,
                 MAX_FILE_SEARCH_RESULTS,
                 &search_dir,

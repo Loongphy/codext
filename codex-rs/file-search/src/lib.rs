@@ -7,6 +7,7 @@ use nucleo_matcher::pattern::CaseMatching;
 use nucleo_matcher::pattern::Normalization;
 use nucleo_matcher::pattern::Pattern;
 use serde::Serialize;
+use std::borrow::Cow;
 use std::cell::UnsafeCell;
 use std::cmp::Reverse;
 use std::collections::BinaryHeap;
@@ -142,6 +143,59 @@ pub fn run(
     compute_indices: bool,
     respect_gitignore: bool,
 ) -> anyhow::Result<FileSearchResults> {
+    run_internal(
+        pattern_text,
+        limit,
+        search_directory,
+        exclude,
+        threads,
+        cancel_flag,
+        compute_indices,
+        respect_gitignore,
+        false,
+    )
+}
+
+/// Like [`run`], but also returns directory matches.
+///
+/// Directory paths are returned with a trailing path separator so callers can
+/// distinguish them from files (e.g. `src/` on Unix, `src\\` on Windows).
+#[allow(clippy::too_many_arguments)]
+pub fn run_including_directories(
+    pattern_text: &str,
+    limit: NonZero<usize>,
+    search_directory: &Path,
+    exclude: Vec<String>,
+    threads: NonZero<usize>,
+    cancel_flag: Arc<AtomicBool>,
+    compute_indices: bool,
+    respect_gitignore: bool,
+) -> anyhow::Result<FileSearchResults> {
+    run_internal(
+        pattern_text,
+        limit,
+        search_directory,
+        exclude,
+        threads,
+        cancel_flag,
+        compute_indices,
+        respect_gitignore,
+        true,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+fn run_internal(
+    pattern_text: &str,
+    limit: NonZero<usize>,
+    search_directory: &Path,
+    exclude: Vec<String>,
+    threads: NonZero<usize>,
+    cancel_flag: Arc<AtomicBool>,
+    compute_indices: bool,
+    respect_gitignore: bool,
+    include_directories: bool,
+) -> anyhow::Result<FileSearchResults> {
     let pattern = create_pattern(pattern_text);
     // Create one BestMatchesList per worker thread so that each worker can
     // operate independently. The results across threads will be merged when
@@ -208,8 +262,8 @@ pub fn run(
         let cancel = cancel_flag.clone();
 
         Box::new(move |entry| {
-            if let Some(path) = get_file_path(&entry, search_directory) {
-                best_list.insert(path);
+            if let Some(path) = get_entry_path(&entry, search_directory, include_directories) {
+                best_list.insert(path.as_ref());
             }
 
             processed += 1;
@@ -221,20 +275,33 @@ pub fn run(
         })
     });
 
-    fn get_file_path<'a>(
+    fn get_entry_path<'a>(
         entry_result: &'a Result<ignore::DirEntry, ignore::Error>,
         search_directory: &std::path::Path,
-    ) -> Option<&'a str> {
+        include_directories: bool,
+    ) -> Option<Cow<'a, str>> {
         let entry = match entry_result {
             Ok(e) => e,
             Err(_) => return None,
         };
-        if entry.file_type().is_some_and(|ft| ft.is_dir()) {
+        let is_dir = entry.file_type().is_some_and(|ft| ft.is_dir());
+        if is_dir && !include_directories {
             return None;
         }
         let path = entry.path();
         match path.strip_prefix(search_directory) {
-            Ok(rel_path) => rel_path.to_str(),
+            Ok(rel_path) => {
+                if rel_path.as_os_str().is_empty() {
+                    return None;
+                }
+                let rel_str = rel_path.to_str()?;
+                if is_dir {
+                    let mut with_sep = rel_str.to_string();
+                    with_sep.push(std::path::MAIN_SEPARATOR);
+                    return Some(Cow::Owned(with_sep));
+                }
+                Some(Cow::Borrowed(rel_str))
+            }
             Err(_) => None,
         }
     }
@@ -412,6 +479,7 @@ fn create_pattern(pattern: &str) -> Pattern {
 mod tests {
     use super::*;
     use pretty_assertions::assert_eq;
+    use tempfile::tempdir;
 
     #[test]
     fn verify_score_is_none_for_non_match() {
@@ -452,5 +520,62 @@ mod tests {
     #[test]
     fn file_name_from_path_falls_back_to_full_path() {
         assert_eq!(file_name_from_path(""), "");
+    }
+
+    #[test]
+    fn run_excludes_directories_by_default() -> anyhow::Result<()> {
+        let tmp = tempdir()?;
+        std::fs::create_dir(tmp.path().join("src"))?;
+        std::fs::write(tmp.path().join("src").join("main.rs"), "fn main() {}")?;
+
+        let cancel_flag = Arc::new(AtomicBool::new(false));
+        let limit = NonZero::<usize>::new(20).expect("20 should be a valid non-zero usize");
+        let threads = NonZero::<usize>::new(2).expect("2 should be a valid non-zero usize");
+        let results = run(
+            "src",
+            limit,
+            tmp.path(),
+            Vec::new(),
+            threads,
+            cancel_flag,
+            false,
+            true,
+        )?;
+
+        let paths: Vec<String> = results.matches.into_iter().map(|m| m.path).collect();
+        assert!(
+            !paths.contains(&format!("src{}", std::path::MAIN_SEPARATOR)),
+            "expected run() to omit directory entries, got: {paths:?}",
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn run_including_directories_includes_directory_entries_with_trailing_separator()
+    -> anyhow::Result<()> {
+        let tmp = tempdir()?;
+        std::fs::create_dir(tmp.path().join("src"))?;
+        std::fs::write(tmp.path().join("src").join("main.rs"), "fn main() {}")?;
+
+        let cancel_flag = Arc::new(AtomicBool::new(false));
+        let limit = NonZero::<usize>::new(20).expect("20 should be a valid non-zero usize");
+        let threads = NonZero::<usize>::new(2).expect("2 should be a valid non-zero usize");
+        let results = run_including_directories(
+            "src",
+            limit,
+            tmp.path(),
+            Vec::new(),
+            threads,
+            cancel_flag,
+            false,
+            true,
+        )?;
+
+        let paths: Vec<String> = results.matches.into_iter().map(|m| m.path).collect();
+        assert!(
+            paths.contains(&format!("src{}", std::path::MAIN_SEPARATOR)),
+            "expected directory entry with trailing separator, got: {paths:?}",
+        );
+        Ok(())
     }
 }
