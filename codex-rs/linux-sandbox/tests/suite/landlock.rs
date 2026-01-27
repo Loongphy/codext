@@ -47,7 +47,7 @@ async fn run_cmd(cmd: &[&str], writable_roots: &[PathBuf], timeout_ms: u64) {
     }
 }
 
-#[expect(clippy::expect_used, clippy::unwrap_used)]
+#[expect(clippy::expect_used)]
 async fn run_cmd_output(
     cmd: &[&str],
     writable_roots: &[PathBuf],
@@ -58,7 +58,7 @@ async fn run_cmd_output(
         .expect("sandboxed command should succeed")
 }
 
-#[expect(clippy::expect_used, clippy::unwrap_used)]
+#[expect(clippy::expect_used)]
 async fn run_cmd_result(
     cmd: &[&str],
     writable_roots: &[PathBuf],
