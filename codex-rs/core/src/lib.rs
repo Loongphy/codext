@@ -69,6 +69,7 @@ mod event_mapping;
 pub mod review_format;
 pub mod review_prompts;
 mod thread_manager;
+pub mod web_search;
 pub use codex_protocol::protocol::InitialHistory;
 pub use thread_manager::NewThread;
 pub use thread_manager::ThreadManager;
@@ -125,9 +126,6 @@ pub use exec_policy::ExecPolicyError;
 pub use exec_policy::check_execpolicy_for_warnings;
 pub use exec_policy::load_exec_policy;
 pub use safety::get_platform_sandbox;
-pub use safety::is_windows_elevated_sandbox_enabled;
-pub use safety::set_windows_elevated_sandbox_enabled;
-pub use safety::set_windows_sandbox_enabled;
 pub use tools::spec::parse_tool_input_schema;
 // Re-export the protocol types from the standalone `codex-protocol` crate so existing
 // `codex_core::protocol::...` references continue to work across the workspace.
