@@ -822,6 +822,22 @@ pub enum LoginAccountParams {
     #[serde(rename = "chatgpt")]
     #[ts(rename = "chatgpt")]
     Chatgpt,
+    #[serde(rename = "chatgptAuthTokens")]
+    #[ts(rename = "chatgptAuthTokens")]
+    ChatgptAuthTokens {
+        /// ID token (JWT) supplied by the parent application.
+        ///
+        /// This token is used for identity and account metadata (email, plan type,
+        /// workspace id).
+        #[serde(rename = "idToken")]
+        #[ts(rename = "idToken")]
+        id_token: String,
+        /// Access token (JWT) supplied by the parent application.
+        /// This token is used for backend API requests.
+        #[serde(rename = "accessToken")]
+        #[ts(rename = "accessToken")]
+        access_token: String,
+    },
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, JsonSchema, TS)]
@@ -841,6 +857,9 @@ pub enum LoginAccountResponse {
         /// URL the client should open in a browser to initiate the OAuth flow.
         auth_url: String,
     },
+    #[serde(rename = "chatgptAuthTokens", rename_all = "camelCase")]
+    #[ts(rename = "chatgptAuthTokens", rename_all = "camelCase")]
+    ChatgptAuthTokens {},
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, JsonSchema, TS)]
@@ -871,29 +890,10 @@ pub struct CancelLoginAccountResponse {
 #[ts(export_to = "v2/")]
 pub struct LogoutAccountResponse {}
 
-#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, JsonSchema, TS)]
-#[serde(rename_all = "camelCase")]
-#[ts(export_to = "v2/")]
-pub struct SetAuthTokenParams {
-    /// ID token (JWT) supplied by the parent application.
-    ///
-    /// This token is used for identity and account metadata (email, plan type,
-    /// workspace id).
-    pub id_token: String,
-    /// Access token (JWT) supplied by the parent application.
-    /// This token is used for backend API requests.
-    pub access_token: String,
-}
-
-#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, JsonSchema, TS)]
-#[serde(rename_all = "camelCase")]
-#[ts(export_to = "v2/")]
-pub struct SetAuthTokenResponse {}
-
 #[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq, JsonSchema, TS)]
 #[serde(rename_all = "camelCase")]
 #[ts(export_to = "v2/")]
-pub enum AccountRefreshAuthTokenReason {
+pub enum ChatgptAuthTokensRefreshReason {
     /// Codex attempted a backend request and received `401 Unauthorized`.
     Unauthorized,
 }
@@ -901,8 +901,8 @@ pub enum AccountRefreshAuthTokenReason {
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, JsonSchema, TS)]
 #[serde(rename_all = "camelCase")]
 #[ts(export_to = "v2/")]
-pub struct AccountRefreshAuthTokenParams {
-    pub reason: AccountRefreshAuthTokenReason,
+pub struct ChatgptAuthTokensRefreshParams {
+    pub reason: ChatgptAuthTokensRefreshReason,
     /// Workspace/account identifier that Codex was previously using.
     ///
     /// Clients that manage multiple accounts/workspaces can use this as a hint
@@ -916,7 +916,7 @@ pub struct AccountRefreshAuthTokenParams {
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, JsonSchema, TS)]
 #[serde(rename_all = "camelCase")]
 #[ts(export_to = "v2/")]
-pub struct AccountRefreshAuthTokenResponse {
+pub struct ChatgptAuthTokensRefreshResponse {
     pub id_token: String,
     pub access_token: String,
 }
@@ -936,7 +936,7 @@ pub struct GetAccountParams {
     ///
     /// In managed auth mode this triggers the normal refresh-token flow. In
     /// external auth mode this flag is ignored. Clients should refresh tokens
-    /// themselves and call `account/setAuthToken`.
+    /// themselves and call `account/login/start` with `chatgptAuthTokens`.
     #[serde(default)]
     pub refresh_token: bool,
 }

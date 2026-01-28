@@ -202,11 +202,6 @@ client_request_definitions! {
         response: v2::LogoutAccountResponse,
     },
 
-    SetAuthToken => "account/setAuthToken" {
-        params: v2::SetAuthTokenParams,
-        response: v2::SetAuthTokenResponse,
-    },
-
     GetAccountRateLimits => "account/rateLimits/read" {
         params: #[ts(type = "undefined")] #[serde(skip_serializing_if = "Option::is_none")] Option<()>,
         response: v2::GetAccountRateLimitsResponse,
@@ -539,9 +534,9 @@ server_request_definitions! {
         response: v2::DynamicToolCallResponse,
     },
 
-    AccountRefreshAuthToken => "account/refreshAuthToken" {
-        params: v2::AccountRefreshAuthTokenParams,
-        response: v2::AccountRefreshAuthTokenResponse,
+    ChatgptAuthTokensRefresh => "account/chatgptAuthTokens/refresh" {
+        params: v2::ChatgptAuthTokensRefreshParams,
+        response: v2::ChatgptAuthTokensRefreshResponse,
     },
 
     /// DEPRECATED APIs below
@@ -763,17 +758,17 @@ mod tests {
     }
 
     #[test]
-    fn serialize_account_refresh_auth_token_request() -> Result<()> {
-        let request = ServerRequest::AccountRefreshAuthToken {
+    fn serialize_chatgpt_auth_tokens_refresh_request() -> Result<()> {
+        let request = ServerRequest::ChatgptAuthTokensRefresh {
             request_id: RequestId::Integer(8),
-            params: v2::AccountRefreshAuthTokenParams {
-                reason: v2::AccountRefreshAuthTokenReason::Unauthorized,
+            params: v2::ChatgptAuthTokensRefreshParams {
+                reason: v2::ChatgptAuthTokensRefreshReason::Unauthorized,
                 previous_account_id: Some("org-123".to_string()),
             },
         };
         assert_eq!(
             json!({
-                "method": "account/refreshAuthToken",
+                "method": "account/chatgptAuthTokens/refresh",
                 "id": 8,
                 "params": {
                     "reason": "unauthorized",
@@ -875,19 +870,20 @@ mod tests {
     }
 
     #[test]
-    fn serialize_set_auth_token() -> Result<()> {
-        let request = ClientRequest::SetAuthToken {
+    fn serialize_account_login_chatgpt_auth_tokens() -> Result<()> {
+        let request = ClientRequest::LoginAccount {
             request_id: RequestId::Integer(5),
-            params: v2::SetAuthTokenParams {
+            params: v2::LoginAccountParams::ChatgptAuthTokens {
                 access_token: "access-token".to_string(),
                 id_token: "id-token".to_string(),
             },
         };
         assert_eq!(
             json!({
-                "method": "account/setAuthToken",
+                "method": "account/login/start",
                 "id": 5,
                 "params": {
+                    "type": "chatgptAuthTokens",
                     "accessToken": "access-token",
                     "idToken": "id-token"
                 }

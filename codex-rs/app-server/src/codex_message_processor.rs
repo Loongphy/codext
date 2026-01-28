@@ -58,6 +58,7 @@ use codex_app_server_protocol::ListConversationsResponse;
 use codex_app_server_protocol::ListMcpServerStatusParams;
 use codex_app_server_protocol::ListMcpServerStatusResponse;
 use codex_app_server_protocol::LoginAccountParams;
+use codex_app_server_protocol::LoginAccountResponse;
 use codex_app_server_protocol::LoginApiKeyParams;
 use codex_app_server_protocol::LoginApiKeyResponse;
 use codex_app_server_protocol::LoginChatGptCompleteNotification;
@@ -89,8 +90,6 @@ use codex_app_server_protocol::SendUserTurnParams;
 use codex_app_server_protocol::SendUserTurnResponse;
 use codex_app_server_protocol::ServerNotification;
 use codex_app_server_protocol::SessionConfiguredNotification;
-use codex_app_server_protocol::SetAuthTokenParams;
-use codex_app_server_protocol::SetAuthTokenResponse;
 use codex_app_server_protocol::SetDefaultModelParams;
 use codex_app_server_protocol::SetDefaultModelResponse;
 use codex_app_server_protocol::SkillsConfigWriteParams;
@@ -498,9 +497,6 @@ impl CodexMessageProcessor {
             } => {
                 self.logout_v2(request_id).await;
             }
-            ClientRequest::SetAuthToken { request_id, params } => {
-                self.set_auth_token(request_id, params).await;
-            }
             ClientRequest::CancelLoginAccount { request_id, params } => {
                 self.cancel_login_v2(request_id, params).await;
             }
@@ -614,15 +610,21 @@ impl CodexMessageProcessor {
             LoginAccountParams::Chatgpt => {
                 self.login_chatgpt_v2(request_id).await;
             }
+            LoginAccountParams::ChatgptAuthTokens {
+                id_token,
+                access_token,
+            } => {
+                self.login_chatgpt_auth_tokens(request_id, id_token, access_token)
+                    .await;
+            }
         }
     }
 
     fn external_auth_active_error(&self) -> JSONRPCErrorError {
         JSONRPCErrorError {
             code: INVALID_REQUEST_ERROR_CODE,
-            message:
-                "External auth is active. Use account/setAuthToken to update it or account/logout to clear it."
-                    .to_string(),
+            message: "External auth is active. Use account/login/start (chatgptAuthTokens) to update it or account/logout to clear it."
+                .to_string(),
             data: None,
         }
     }
@@ -989,7 +991,12 @@ impl CodexMessageProcessor {
         }
     }
 
-    async fn set_auth_token(&mut self, request_id: RequestId, params: SetAuthTokenParams) {
+    async fn login_chatgpt_auth_tokens(
+        &mut self,
+        request_id: RequestId,
+        id_token: String,
+        access_token: String,
+    ) {
         if matches!(
             self.config.forced_login_method,
             Some(ForcedLoginMethod::Api)
@@ -1012,7 +1019,7 @@ impl CodexMessageProcessor {
             }
         }
 
-        let id_token_info = match parse_id_token(&params.id_token) {
+        let id_token_info = match parse_id_token(&id_token) {
             Ok(info) => info,
             Err(err) => {
                 let error = JSONRPCErrorError {
@@ -1041,14 +1048,25 @@ impl CodexMessageProcessor {
         }
 
         let external = ExternalAuthState {
-            access_token: params.access_token,
-            id_token: params.id_token,
+            access_token,
+            id_token,
             account_id: id_token_info.chatgpt_account_id,
         };
         let _changed = self.auth_manager.set_external_auth(external);
 
         self.outgoing
-            .send_response(request_id, SetAuthTokenResponse {})
+            .send_response(request_id, LoginAccountResponse::ChatgptAuthTokens {})
+            .await;
+
+        let payload_login_completed = AccountLoginCompletedNotification {
+            login_id: None,
+            success: true,
+            error: None,
+        };
+        self.outgoing
+            .send_server_notification(ServerNotification::AccountLoginCompleted(
+                payload_login_completed,
+            ))
             .await;
 
         let payload_v2 = AccountUpdatedNotification {
