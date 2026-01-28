@@ -1,6 +1,7 @@
 # Codex
 
 ![Codex build](https://img.shields.io/badge/codex%20build-v0.92.0-2ea043)
+<img width="3799" height="520" alt="PixPin_2026-01-28_16-44-08" src="https://github.com/user-attachments/assets/127abbc2-cb30-4d6e-8a81-ce707260c045" />
 
 This is strictly a personal hobby project, forked from [openai/codex](https://github.com/openai/codex).
 
