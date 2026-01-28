@@ -1430,7 +1430,15 @@ impl App {
                     tui.frame_requester().schedule_frame();
                 }
                 self.transcript_cells.push(cell.clone());
-                let mut display = cell.display_lines(tui.terminal.last_known_screen_size.width);
+                let width = tui
+                    .terminal
+                    .size()
+                    .ok()
+                    .map(|size| size.width)
+                    .unwrap_or(tui.terminal.last_known_screen_size.width)
+                    .max(tui.terminal.viewport_area.width)
+                    .max(1);
+                let mut display = cell.display_lines(width);
                 if !display.is_empty() {
                     // Only insert a separating blank line for new cells that are not
                     // part of an ongoing stream. Streaming continuations should not
@@ -1513,11 +1521,14 @@ impl App {
             AppEvent::RateLimitSnapshotFetched(snapshot) => {
                 self.chat_widget.on_rate_limit_snapshot(Some(snapshot));
             }
+            AppEvent::GitStatusFetched(summary) => {
+                self.chat_widget.on_git_status_update(summary);
+            }
             AppEvent::UpdateReasoningEffort(effort) => {
                 self.on_update_reasoning_effort(effort);
             }
             AppEvent::UpdateModel(model) => {
-                self.chat_widget.set_model(&model);
+                self.chat_widget.set_base_model(&model);
             }
             AppEvent::UpdateCollaborationMode(mask) => {
                 self.chat_widget.set_collaboration_mask(mask);
@@ -2201,7 +2212,7 @@ impl App {
         // TODO(aibrahim): Remove this and don't use config as a state object.
         // Instead, explicitly pass the stored collaboration mode's effort into new sessions.
         self.config.model_reasoning_effort = effort;
-        self.chat_widget.set_reasoning_effort(effort);
+        self.chat_widget.set_base_reasoning_effort(effort);
     }
 
     fn on_update_personality(&mut self, personality: Personality) {

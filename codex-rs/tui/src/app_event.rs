@@ -18,6 +18,7 @@ use codex_protocol::ThreadId;
 use codex_protocol::openai_models::ModelPreset;
 
 use crate::bottom_pane::ApprovalRequest;
+use crate::git_status::GitStatusSummary;
 use crate::history_cell::HistoryCell;
 
 use codex_core::features::Feature;
@@ -88,6 +89,8 @@ pub(crate) enum AppEvent {
 
     /// Result of refreshing rate limits
     RateLimitSnapshotFetched(RateLimitSnapshot),
+    /// Result of refreshing git status information.
+    GitStatusFetched(Option<GitStatusSummary>),
 
     /// Result of computing a `/diff` command.
     DiffResult(String),
@@ -250,6 +253,7 @@ pub(crate) enum AppEvent {
     OpenReviewCustomPrompt,
 
     /// Submit a user message with an explicit collaboration mask.
+    #[allow(dead_code)]
     SubmitUserMessageWithMode {
         text: String,
         collaboration_mode: CollaborationModeMask,

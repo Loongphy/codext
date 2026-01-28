@@ -30,7 +30,7 @@ use ratatui::widgets::Widget;
 /// `BottomPane`, and `ChatWidget`) and pass it to `render_footer`. The footer treats these values as
 /// authoritative and does not attempt to infer missing state (for example, it does not query
 /// whether a task is running).
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Debug)]
 pub(crate) struct FooterProps {
     pub(crate) mode: FooterMode,
     pub(crate) esc_backtrack_hint: bool,
@@ -129,11 +129,11 @@ pub(crate) fn reset_mode_after_activity(current: FooterMode) -> FooterMode {
     }
 }
 
-pub(crate) fn footer_height(props: FooterProps) -> u16 {
+pub(crate) fn footer_height(props: &FooterProps) -> u16 {
     footer_lines(props).len() as u16
 }
 
-pub(crate) fn render_footer(area: Rect, buf: &mut Buffer, props: FooterProps) {
+pub(crate) fn render_footer(area: Rect, buf: &mut Buffer, props: &FooterProps) {
     Paragraph::new(prefix_lines(
         footer_lines(props),
         " ".repeat(FOOTER_INDENT_COLS).into(),
@@ -193,7 +193,7 @@ pub(crate) fn render_footer_hint_items(area: Rect, buf: &mut Buffer, items: &[(S
     footer_hint_items_line(items).render(inset_footer_hint_area(area), buf);
 }
 
-fn footer_lines(props: FooterProps) -> Vec<Line<'static>> {
+fn footer_lines(props: &FooterProps) -> Vec<Line<'static>> {
     // Show the context indicator on the left, appended after the primary hint
     // (e.g., "? for shortcuts"). Keep it visible even when typing (i.e., when
     // the shortcut hint is hidden). Hide it only for the multi-line
@@ -202,18 +202,7 @@ fn footer_lines(props: FooterProps) -> Vec<Line<'static>> {
         FooterMode::QuitShortcutReminder => {
             vec![quit_shortcut_reminder_line(props.quit_shortcut_key)]
         }
-        FooterMode::ShortcutSummary => {
-            let mut line = context_window_line(
-                props.context_window_percent,
-                props.context_window_used_tokens,
-            );
-            line.push_span(" · ".dim());
-            line.extend(vec![
-                key_hint::plain(KeyCode::Char('?')).into(),
-                " for shortcuts".dim(),
-            ]);
-            vec![line]
-        }
+        FooterMode::ShortcutSummary => vec![status_line(props)],
         FooterMode::ShortcutOverlay => {
             #[cfg(target_os = "linux")]
             let is_wsl = is_probably_wsl();
@@ -230,10 +219,7 @@ fn footer_lines(props: FooterProps) -> Vec<Line<'static>> {
         }
         FooterMode::EscHint => vec![esc_hint_line(props.esc_backtrack_hint)],
         FooterMode::ContextOnly => {
-            let mut line = context_window_line(
-                props.context_window_percent,
-                props.context_window_used_tokens,
-            );
+            let mut line = status_line(props);
             if props.is_task_running && props.steer_enabled {
                 line.push_span(" · ".dim());
                 line.push_span(key_hint::plain(KeyCode::Tab));
@@ -244,7 +230,7 @@ fn footer_lines(props: FooterProps) -> Vec<Line<'static>> {
     }
 }
 
-pub(crate) fn footer_line_width(props: FooterProps) -> u16 {
+pub(crate) fn footer_line_width(props: &FooterProps) -> u16 {
     footer_lines(props)
         .last()
         .map(|line| line.width() as u16)
@@ -394,6 +380,19 @@ fn build_columns(entries: Vec<Line<'static>>) -> Vec<Line<'static>> {
             line.dim()
         })
         .collect()
+}
+
+fn status_line(props: &FooterProps) -> Line<'static> {
+    let mut line = context_window_line(
+        props.context_window_percent,
+        props.context_window_used_tokens,
+    );
+    line.push_span(" · ".dim());
+    line.extend(vec![
+        key_hint::plain(KeyCode::Char('?')).into(),
+        " for shortcuts".dim(),
+    ]);
+    line
 }
 
 fn context_window_line(percent: Option<i64>, used_tokens: Option<i64>) -> Line<'static> {
@@ -615,12 +614,12 @@ mod tests {
     use ratatui::backend::TestBackend;
 
     fn snapshot_footer(name: &str, props: FooterProps) {
-        let height = footer_height(props).max(1);
+        let height = footer_height(&props).max(1);
         let mut terminal = Terminal::new(TestBackend::new(80, height)).unwrap();
         terminal
             .draw(|f| {
                 let area = Rect::new(0, 0, f.area().width, height);
-                render_footer(area, f.buffer_mut(), props);
+                render_footer(area, f.buffer_mut(), &props);
             })
             .unwrap();
         assert_snapshot!(name, terminal.backend());
@@ -629,7 +628,7 @@ mod tests {
     fn snapshot_footer_with_indicator(
         name: &str,
         width: u16,
-        props: FooterProps,
+        props: &FooterProps,
         indicator: Option<CollaborationModeIndicator>,
     ) {
         let height = footer_height(props).max(1);
@@ -832,14 +831,14 @@ mod tests {
         snapshot_footer_with_indicator(
             "footer_mode_indicator_wide",
             120,
-            props,
+            &props,
             Some(CollaborationModeIndicator::Plan),
         );
 
         snapshot_footer_with_indicator(
             "footer_mode_indicator_narrow_overlap_hides",
             50,
-            props,
+            &props,
             Some(CollaborationModeIndicator::Plan),
         );
 
@@ -858,7 +857,7 @@ mod tests {
         snapshot_footer_with_indicator(
             "footer_mode_indicator_running_hides_hint",
             120,
-            props,
+            &props,
             Some(CollaborationModeIndicator::Plan),
         );
     }

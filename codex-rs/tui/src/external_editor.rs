@@ -164,7 +164,7 @@ mod tests {
         perms.set_mode(0o755);
         fs::set_permissions(&script_path, perms).unwrap();
 
-        let cmd = vec![script_path.to_string_lossy().to_string()];
+        let cmd = vec!["sh".to_string(), script_path.to_string_lossy().to_string()];
         let result = run_editor("seed", &cmd).await.unwrap();
         assert_eq!(result, "edited".to_string());
     }
