@@ -7,11 +7,11 @@ description: "Tag-based upstream sync for a fork/secondary-development repo: fet
 
 ## Overview
 
-用于“二开/魔改”场景的 tag 同步：先 `git fetch origin --tags` 拉取 tags，让用户选择一个 tag 版本，从该 tag 创建新分支作为开发起点；然后读取旧二开分支的 git changes 与意图 Markdown，在新分支上“重实现”需求（不 merge/rebase 旧分支历史）。
+用于“二开/魔改”场景的 tag 同步：先 `git fetch upstream --tags` 拉取 tags，让用户选择一个 tag 版本，从该 tag 创建新分支作为开发起点；然后读取旧二开分支的 git changes 与意图 Markdown，在新分支上“重实现”需求（不 merge/rebase 旧分支历史）。
 
 ## Inputs (每次明确这些东西)
 
-- `REMOTE`：拉取 tags 的 remote（默认 `origin`）
+- `REMOTE`：拉取 tags 的 remote（默认 `upstream`）
 - `TAG`：你选择的 tag 版本（作为新分支起点）
 - `OLD_BRANCH`：原本二开的分支（包含改动 + 意图 Markdown；默认取“当前分支”）
 - `NEW_BRANCH`：从 tag 新建的分支名（脚本默认 `feat/<tag-name>`）
@@ -21,11 +21,12 @@ description: "Tag-based upstream sync for a fork/secondary-development repo: fet
 
 ### 0) One-time setup（如果还没有）
 
-确认是否已有 `origin`（如没有再添加；已有就跳过 `remote add`）：
+确认是否已有 `origin`（fork）和 `upstream`（openai/codex），如没有再添加；已有就跳过 `remote add`：
 
 ```bash
 git remote -v
 git remote add origin <ORIGIN_GIT_URL>
+git remote add upstream https://github.com/openai/codex.git
 ```
 
 ### 1) Freeze OLD_BRANCH (把现有改动“固化”为可回看的参考)
@@ -37,7 +38,7 @@ git remote add origin <ORIGIN_GIT_URL>
 ### 2) Fetch tags & choose TAG
 
 ```bash
-git fetch origin --tags --prune
+git fetch upstream --tags --prune
 git for-each-ref --sort=-creatordate --format='%(creatordate:iso8601) %(refname:short)' refs/tags
 ```
 
@@ -50,7 +51,7 @@ git for-each-ref --sort=-creatordate --format='%(creatordate:iso8601) %(refname:
 ```bash
 # 建议在 OLD_BRANCH 上执行；省略 --old-branch 时默认使用当前分支作为 OLD_BRANCH
 bash ~/.codex/skills/codex-upstream-reapply/scripts/start_from_tag.sh \
-  --remote origin --tag TAG
+  --remote upstream --tag TAG
 ```
 
 它会记录：
@@ -64,7 +65,7 @@ bash ~/.codex/skills/codex-upstream-reapply/scripts/start_from_tag.sh \
 
 ```bash
 bash ~/.codex/skills/codex-upstream-reapply/scripts/start_from_tag.sh \
-  --remote origin --tag TAG \
+  --remote upstream --tag TAG \
   --old-base-tag v0.1
 ```
 

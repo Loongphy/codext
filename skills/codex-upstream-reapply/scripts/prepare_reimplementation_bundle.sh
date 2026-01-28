@@ -17,7 +17,7 @@ Options:
   --old-branch <name>     Old customization branch (default: current branch)
   --base-ref <ref>        Selected tag (or commit ref) used to infer merge-base (required)
   --old-base-tag <tag>    Explicit base tag for OLD_BRANCH (overrides merge-base inference)
-  --remote <remote>       Remote for optional tag fetch (default: origin)
+  --remote <remote>       Remote for optional tag fetch (default: upstream)
   --out <dir>             Output directory (default: /tmp/codex-upstream-reapply/<repo>/<old>/<timestamp>)
   --copy-all              Copy ALL changed files (ACMR) from old branch into bundle/old/
   --no-copy-docs          Do not copy changed Markdown docs into bundle/old/ (docs are copied by default)
@@ -78,7 +78,7 @@ hint_tag_from_history() {
 OLD_BRANCH=""
 BASE_REF=""
 OLD_BASE_TAG=""
-REMOTE="origin"
+REMOTE="upstream"
 OUT_DIR=""
 COPY_ALL=0
 COPY_DOCS=1

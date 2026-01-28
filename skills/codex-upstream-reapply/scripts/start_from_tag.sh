@@ -12,7 +12,7 @@ Usage:
   start_from_tag.sh [options]
 
 Options:
-  --remote <remote>       Remote to fetch tags from (default: origin)
+  --remote <remote>       Remote to fetch tags from (default: upstream)
   --tag <tag>             Selected tag (required; if missing, list tags and exit)
   --old-branch <name>     Old customization branch (default: current branch)
   --new-branch <name>     New branch to create from tag (default: feat/<tag-name>)
@@ -63,7 +63,7 @@ copy_file_from_old_branch() {
   fi
 }
 
-REMOTE="origin"
+REMOTE="upstream"
 TAG=""
 OLD_BRANCH=""
 NEW_BRANCH=""

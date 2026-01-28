@@ -10,7 +10,7 @@ Example:
 
 ```bash
 # In repo root (adjust paths as needed)
-git fetch origin --tags --prune
+git fetch upstream --tags --prune
 
 # Old branch worktree (reference)
 git worktree add /tmp/wt-old OLD_BRANCH
