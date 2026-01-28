@@ -1,12 +1,32 @@
-# Codext
+# Codex
 
 ![Codex build](https://img.shields.io/badge/codex%20build-v0.92.0-2ea043)
 
 This is strictly a personal hobby project, forked from [openai/codex](https://github.com/openai/codex).
 
+## Quick Start
+
+```shell
+cd codex-rs
+cargo run --bin codex
+```
+
 ## Project Goals
 
 We will never merge code from the upstream repo; instead, we re-implement our changes on top of the latest upstream code.
+
+Iteration flow (aligned with `skills/codex-upstream-reapply`):
+
+```mermaid
+flowchart TD
+    A[Freeze old branch: commit changes + intent docs] --> B[Fetch upstream tags]
+    B --> C[Pick tag + create new branch from tag]
+    C --> D[Generate reimplementation bundle]
+    D --> E[Read old branch + bundle for intent]
+    E --> F[Re-implement changes on new branch]
+    F --> G[Sanity check diffs vs tag]
+    G --> H[Force-push to fork main]
+```
 
 > [!IMPORTANT]
 > **DO NOT USE IN PRODUCTION.**
@@ -27,7 +47,7 @@ We will never merge code from the upstream repo; instead, we re-implement our ch
 2. After making code changes, verify the CLI still launches:
 
 ```shell
-cd /coding/codex/codex-rs
+cd ./codex-rs
 cargo run --bin codex
 ```
 
