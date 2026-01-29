@@ -2,8 +2,8 @@
 
 ![Codex build](https://img.shields.io/badge/codex%20build-v0.92.0-2ea043)
 
-![TUI](
-https://github.com/user-attachments/assets/127abbc2-cb30-4d6e-8a81-ce707260c045)
+![TUI](https://github.com/user-attachments/assets/c412cca2-a038-4120-aaa5-7392405406d2)
+
 
 This is strictly a personal hobby project, forked from [openai/codex](https://github.com/openai/codex).
 
