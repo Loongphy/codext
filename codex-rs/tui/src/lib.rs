@@ -21,8 +21,8 @@ use codex_core::auth::enforce_login_restrictions;
 use codex_core::config::Config;
 use codex_core::config::ConfigBuilder;
 use codex_core::config::ConfigOverrides;
-use codex_core::config::find_codex_home;
 use codex_core::config::load_config_as_toml_with_cli_overrides;
+use codex_core::config::resolve_codex_home_for_writes;
 use codex_core::config::resolve_oss_provider;
 use codex_core::config_loader::CloudRequirementsLoader;
 use codex_core::config_loader::ConfigLoadError;
@@ -59,6 +59,7 @@ mod app_backtrack;
 mod app_event;
 mod app_event_sender;
 mod ascii_animation;
+mod auth_watch;
 mod bottom_pane;
 mod chatwidget;
 mod cli;
@@ -75,6 +76,7 @@ mod external_editor;
 mod file_search;
 mod frames;
 mod get_git_diff;
+mod git_status;
 mod history_cell;
 pub mod insert_history;
 mod key_hint;
@@ -169,8 +171,8 @@ pub async fn run_main(
 
     // we load config.toml here to determine project state.
     #[allow(clippy::print_stderr)]
-    let codex_home = match find_codex_home() {
-        Ok(codex_home) => codex_home.to_path_buf(),
+    let codex_home = match resolve_codex_home_for_writes() {
+        Ok(codex_home) => codex_home,
         Err(err) => {
             eprintln!("Error finding codex home: {err}");
             std::process::exit(1);

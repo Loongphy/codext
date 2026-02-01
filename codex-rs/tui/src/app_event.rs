@@ -19,6 +19,7 @@ use codex_protocol::ThreadId;
 use codex_protocol::openai_models::ModelPreset;
 
 use crate::bottom_pane::ApprovalRequest;
+use crate::git_status::GitStatusSummary;
 use crate::history_cell::HistoryCell;
 
 use codex_core::features::Feature;
@@ -50,6 +51,8 @@ pub(crate) struct ConnectorsSnapshot {
 #[derive(Debug)]
 pub(crate) enum AppEvent {
     CodexEvent(Event),
+    /// Auth file change detected; reload auth state.
+    AuthFileChanged,
     /// Open the agent picker for switching active threads.
     OpenAgentPicker,
     /// Switch the active thread to the selected agent.
@@ -94,6 +97,8 @@ pub(crate) enum AppEvent {
 
     /// Result of refreshing rate limits
     RateLimitSnapshotFetched(RateLimitSnapshot),
+    /// Result of refreshing git status information.
+    GitStatusFetched(Option<GitStatusSummary>),
 
     /// Result of prefetching connectors.
     ConnectorsLoaded(Result<ConnectorsSnapshot, String>),
@@ -271,6 +276,7 @@ pub(crate) enum AppEvent {
     OpenReviewCustomPrompt,
 
     /// Submit a user message with an explicit collaboration mask.
+    #[allow(dead_code)]
     SubmitUserMessageWithMode {
         text: String,
         collaboration_mode: CollaborationModeMask,

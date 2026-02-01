@@ -150,7 +150,7 @@ where
 /// IMPORTANT: This function modifies the PATH environment variable, so it MUST
 /// be called before multiple threads are spawned.
 pub fn prepend_path_entry_for_codex_aliases() -> std::io::Result<TempDir> {
-    let codex_home = codex_core::config::find_codex_home()?;
+    let codex_home = codex_core::config::resolve_codex_home_for_writes()?;
     #[cfg(not(debug_assertions))]
     {
         // Guard against placing helpers in system temp directories outside debug builds.

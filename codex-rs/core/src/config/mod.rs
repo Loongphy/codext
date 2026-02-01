@@ -1,6 +1,7 @@
 use crate::auth::AuthCredentialsStoreMode;
 use crate::config::edit::ConfigEdit;
 use crate::config::edit::ConfigEditsBuilder;
+use crate::config::types::CollaborationModeOverrides;
 use crate::config::types::DEFAULT_OTEL_ENVIRONMENT;
 use crate::config::types::History;
 use crate::config::types::McpServerConfig;
@@ -164,6 +165,9 @@ pub struct Config {
     /// When set to `true`, `AgentReasoningRawContentEvent` events will be shown in the UI/output.
     /// Defaults to `false`.
     pub show_raw_agent_reasoning: bool,
+
+    /// Optional overrides for collaboration mode presets.
+    pub collaboration_modes: Option<CollaborationModeOverrides>,
 
     /// User-provided instructions from AGENTS.md.
     pub user_instructions: Option<String>,
@@ -904,6 +908,9 @@ pub struct ConfigToml {
     /// Defaults to `false`.
     pub show_raw_agent_reasoning: Option<bool>,
 
+    /// Optional overrides for collaboration mode presets.
+    pub collaboration_modes: Option<CollaborationModeOverrides>,
+
     pub model_reasoning_effort: Option<ReasoningEffort>,
     pub model_reasoning_summary: Option<ReasoningSummary>,
     /// Optional verbosity control for GPT-5 models (Responses API `text.verbosity`).
@@ -1592,6 +1599,7 @@ impl Config {
                 .show_raw_agent_reasoning
                 .or(show_raw_agent_reasoning)
                 .unwrap_or(false),
+            collaboration_modes: cfg.collaboration_modes,
             model_reasoning_effort: config_profile
                 .model_reasoning_effort
                 .or(cfg.model_reasoning_effort),
@@ -1766,6 +1774,36 @@ fn toml_uses_deprecated_instructions_file(value: &TomlValue) -> bool {
 ///   directory exists.
 pub fn find_codex_home() -> std::io::Result<PathBuf> {
     codex_utils_home_dir::find_codex_home()
+}
+
+/// Resolve a writable Codex home directory.
+///
+/// If `CODEX_HOME` is set, we always use it and return any errors from creating
+/// the directory. Otherwise, fall back to a temp directory when the default
+/// home location is not writable (useful for sandboxed/dev environments).
+pub fn resolve_codex_home_for_writes() -> std::io::Result<PathBuf> {
+    let codex_home = find_codex_home()?;
+    let env_override = std::env::var("CODEX_HOME")
+        .map(|val| !val.is_empty())
+        .unwrap_or(false);
+
+    match std::fs::create_dir_all(&codex_home) {
+        Ok(()) => Ok(codex_home),
+        Err(err) if !env_override && err.kind() == std::io::ErrorKind::PermissionDenied => {
+            let fallback = std::env::temp_dir().join("codex");
+            std::fs::create_dir_all(&fallback)?;
+            #[allow(clippy::print_stderr)]
+            {
+                eprintln!(
+                    "WARNING: {} is not writable; using temporary Codex home at {}",
+                    codex_home.display(),
+                    fallback.display()
+                );
+            }
+            Ok(fallback)
+        }
+        Err(err) => Err(err),
+    }
 }
 
 /// Returns the path to the folder where Codex logs are stored. Does not verify
@@ -3803,6 +3841,7 @@ model_verbosity = "high"
                 codex_linux_sandbox_exe: None,
                 hide_agent_reasoning: false,
                 show_raw_agent_reasoning: false,
+                collaboration_modes: None,
                 model_reasoning_effort: Some(ReasoningEffort::High),
                 model_reasoning_summary: ReasoningSummary::Detailed,
                 model_supports_reasoning_summaries: None,
@@ -3888,6 +3927,7 @@ model_verbosity = "high"
             codex_linux_sandbox_exe: None,
             hide_agent_reasoning: false,
             show_raw_agent_reasoning: false,
+            collaboration_modes: None,
             model_reasoning_effort: None,
             model_reasoning_summary: ReasoningSummary::default(),
             model_supports_reasoning_summaries: None,
@@ -3988,6 +4028,7 @@ model_verbosity = "high"
             codex_linux_sandbox_exe: None,
             hide_agent_reasoning: false,
             show_raw_agent_reasoning: false,
+            collaboration_modes: None,
             model_reasoning_effort: None,
             model_reasoning_summary: ReasoningSummary::default(),
             model_supports_reasoning_summaries: None,
@@ -4074,6 +4115,7 @@ model_verbosity = "high"
             codex_linux_sandbox_exe: None,
             hide_agent_reasoning: false,
             show_raw_agent_reasoning: false,
+            collaboration_modes: None,
             model_reasoning_effort: Some(ReasoningEffort::High),
             model_reasoning_summary: ReasoningSummary::Detailed,
             model_supports_reasoning_summaries: None,

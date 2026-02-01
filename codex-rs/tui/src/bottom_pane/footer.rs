@@ -53,7 +53,7 @@ use ratatui::widgets::Widget;
 /// (`render_footer_from_props` or the single-line collapse logic). The footer
 /// treats these values as authoritative and does not attempt to infer missing
 /// state (for example, it does not query whether a task is running).
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Debug)]
 pub(crate) struct FooterProps {
     pub(crate) mode: FooterMode,
     pub(crate) esc_backtrack_hint: bool,
@@ -166,7 +166,7 @@ pub(crate) fn reset_mode_after_activity(current: FooterMode) -> FooterMode {
     }
 }
 
-pub(crate) fn footer_height(props: FooterProps) -> u16 {
+pub(crate) fn footer_height(props: &FooterProps) -> u16 {
     let show_shortcuts_hint = match props.mode {
         FooterMode::ComposerEmpty => true,
         FooterMode::QuitShortcutReminder
@@ -204,7 +204,7 @@ pub(crate) fn render_footer_line(area: Rect, buf: &mut Buffer, line: Line<'stati
 pub(crate) fn render_footer_from_props(
     area: Rect,
     buf: &mut Buffer,
-    props: FooterProps,
+    props: &FooterProps,
     collaboration_mode_indicator: Option<CollaborationModeIndicator>,
     show_cycle_hint: bool,
     show_shortcuts_hint: bool,
@@ -532,7 +532,7 @@ pub(crate) fn render_footer_hint_items(area: Rect, buf: &mut Buffer, items: &[(S
 /// fallback decisions live in `single_line_footer_layout`; this function only
 /// formats the chosen/default content.
 fn footer_from_props_lines(
-    props: FooterProps,
+    props: &FooterProps,
     collaboration_mode_indicator: Option<CollaborationModeIndicator>,
     show_cycle_hint: bool,
     show_shortcuts_hint: bool,
@@ -578,7 +578,7 @@ fn footer_from_props_lines(
 }
 
 pub(crate) fn footer_line_width(
-    props: FooterProps,
+    props: &FooterProps,
     collaboration_mode_indicator: Option<CollaborationModeIndicator>,
     show_cycle_hint: bool,
     show_shortcuts_hint: bool,
@@ -960,14 +960,14 @@ mod tests {
     use ratatui::Terminal;
     use ratatui::backend::TestBackend;
 
-    fn snapshot_footer(name: &str, props: FooterProps) {
+    fn snapshot_footer(name: &str, props: &FooterProps) {
         snapshot_footer_with_mode_indicator(name, 80, props, None);
     }
 
     fn snapshot_footer_with_mode_indicator(
         name: &str,
         width: u16,
-        props: FooterProps,
+        props: &FooterProps,
         collaboration_mode_indicator: Option<CollaborationModeIndicator>,
     ) {
         let height = footer_height(props).max(1);
@@ -1066,7 +1066,7 @@ mod tests {
     fn footer_snapshots() {
         snapshot_footer(
             "footer_shortcuts_default",
-            FooterProps {
+            &FooterProps {
                 mode: FooterMode::ComposerEmpty,
                 esc_backtrack_hint: false,
                 use_shift_enter_hint: false,
@@ -1082,7 +1082,7 @@ mod tests {
 
         snapshot_footer(
             "footer_shortcuts_shift_and_esc",
-            FooterProps {
+            &FooterProps {
                 mode: FooterMode::ShortcutOverlay,
                 esc_backtrack_hint: true,
                 use_shift_enter_hint: true,
@@ -1098,7 +1098,7 @@ mod tests {
 
         snapshot_footer(
             "footer_shortcuts_collaboration_modes_enabled",
-            FooterProps {
+            &FooterProps {
                 mode: FooterMode::ShortcutOverlay,
                 esc_backtrack_hint: false,
                 use_shift_enter_hint: false,
@@ -1114,7 +1114,7 @@ mod tests {
 
         snapshot_footer(
             "footer_ctrl_c_quit_idle",
-            FooterProps {
+            &FooterProps {
                 mode: FooterMode::QuitShortcutReminder,
                 esc_backtrack_hint: false,
                 use_shift_enter_hint: false,
@@ -1130,7 +1130,7 @@ mod tests {
 
         snapshot_footer(
             "footer_ctrl_c_quit_running",
-            FooterProps {
+            &FooterProps {
                 mode: FooterMode::QuitShortcutReminder,
                 esc_backtrack_hint: false,
                 use_shift_enter_hint: false,
@@ -1146,7 +1146,7 @@ mod tests {
 
         snapshot_footer(
             "footer_esc_hint_idle",
-            FooterProps {
+            &FooterProps {
                 mode: FooterMode::EscHint,
                 esc_backtrack_hint: false,
                 use_shift_enter_hint: false,
@@ -1162,7 +1162,7 @@ mod tests {
 
         snapshot_footer(
             "footer_esc_hint_primed",
-            FooterProps {
+            &FooterProps {
                 mode: FooterMode::EscHint,
                 esc_backtrack_hint: true,
                 use_shift_enter_hint: false,
@@ -1178,7 +1178,7 @@ mod tests {
 
         snapshot_footer(
             "footer_shortcuts_context_running",
-            FooterProps {
+            &FooterProps {
                 mode: FooterMode::ComposerEmpty,
                 esc_backtrack_hint: false,
                 use_shift_enter_hint: false,
@@ -1194,7 +1194,7 @@ mod tests {
 
         snapshot_footer(
             "footer_context_tokens_used",
-            FooterProps {
+            &FooterProps {
                 mode: FooterMode::ComposerEmpty,
                 esc_backtrack_hint: false,
                 use_shift_enter_hint: false,
@@ -1210,7 +1210,7 @@ mod tests {
 
         snapshot_footer(
             "footer_composer_has_draft_queue_hint_disabled",
-            FooterProps {
+            &FooterProps {
                 mode: FooterMode::ComposerHasDraft,
                 esc_backtrack_hint: false,
                 use_shift_enter_hint: false,
@@ -1226,7 +1226,7 @@ mod tests {
 
         snapshot_footer(
             "footer_composer_has_draft_queue_hint_enabled",
-            FooterProps {
+            &FooterProps {
                 mode: FooterMode::ComposerHasDraft,
                 esc_backtrack_hint: false,
                 use_shift_enter_hint: false,
@@ -1256,14 +1256,14 @@ mod tests {
         snapshot_footer_with_mode_indicator(
             "footer_mode_indicator_wide",
             120,
-            props,
+            &props,
             Some(CollaborationModeIndicator::Plan),
         );
 
         snapshot_footer_with_mode_indicator(
             "footer_mode_indicator_narrow_overlap_hides",
             50,
-            props,
+            &props,
             Some(CollaborationModeIndicator::Plan),
         );
 
@@ -1283,7 +1283,7 @@ mod tests {
         snapshot_footer_with_mode_indicator(
             "footer_mode_indicator_running_hides_hint",
             120,
-            props,
+            &props,
             Some(CollaborationModeIndicator::Plan),
         );
     }

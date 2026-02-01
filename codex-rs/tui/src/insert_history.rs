@@ -40,7 +40,8 @@ where
 
     // Pre-wrap lines using word-aware wrapping so terminal scrollback sees the same
     // formatting as the TUI. This avoids character-level hard wrapping by the terminal.
-    let wrapped = word_wrap_lines_borrowed(&lines, area.width.max(1) as usize);
+    let wrap_width = area.width.max(screen_size.width).max(1) as usize;
+    let wrapped = word_wrap_lines_borrowed(&lines, wrap_width);
     let wrapped_lines = wrapped.len() as u16;
     let cursor_top = if area.bottom() < screen_size.height {
         // If the viewport is not at the bottom of the screen, scroll it down to make room.

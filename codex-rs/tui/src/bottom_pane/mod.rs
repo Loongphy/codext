@@ -792,11 +792,11 @@ impl BottomPane {
             RenderableItem::Borrowed(view)
         } else {
             let mut flex = FlexRenderable::new();
-            if let Some(status) = &self.status {
-                flex.push(0, RenderableItem::Borrowed(status));
-            }
             if !self.unified_exec_footer.is_empty() {
                 flex.push(0, RenderableItem::Borrowed(&self.unified_exec_footer));
+            }
+            if let Some(status) = &self.status {
+                flex.push(0, RenderableItem::Borrowed(status));
             }
             let has_queued_messages = !self.queued_user_messages.messages.is_empty();
             let has_status_or_footer =
