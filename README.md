@@ -42,6 +42,7 @@ flowchart TD
 
 * Added a TUI status header with model/effort, cwd, git summary, and rate-limit status.
 * Collaboration mode presets now accept per-mode overrides and default to the active `/model` settings.
+* TUI watches `auth.json` for external login changes and reloads auth automatically (with a warning on account switch).
 * Full change log: see [CHANGED.md](./CHANGED.md).
 
 ## AGENT Local development check

@@ -6,6 +6,7 @@ use crate::app_event::WindowsSandboxEnableMode;
 #[cfg(target_os = "windows")]
 use crate::app_event::WindowsSandboxFallbackReason;
 use crate::app_event_sender::AppEventSender;
+use crate::auth_watch::AuthWatch;
 use crate::bottom_pane::ApprovalRequest;
 use crate::bottom_pane::SelectionItem;
 use crate::bottom_pane::SelectionViewParams;
@@ -32,6 +33,7 @@ use crate::tui;
 use crate::tui::TuiEvent;
 use crate::update_action::UpdateAction;
 use codex_ansi_escape::ansi_escape_line;
+use codex_app_server_protocol::AuthMode;
 use codex_app_server_protocol::ConfigLayerSource;
 use codex_core::AuthManager;
 use codex_core::CodexAuth;
@@ -508,6 +510,8 @@ pub(crate) struct App {
     pub(crate) app_event_tx: AppEventSender,
     pub(crate) chat_widget: ChatWidget,
     pub(crate) auth_manager: Arc<AuthManager>,
+    #[allow(dead_code)]
+    auth_watch: Option<AuthWatch>,
     /// Config is stored here so we can recreate ChatWidgets as needed.
     pub(crate) config: Config,
     pub(crate) active_profile: Option<String>,
@@ -560,6 +564,58 @@ struct WindowsSandboxState {
     setup_started_at: Option<Instant>,
     // One-shot suppression of the next world-writable scan after user confirmation.
     skip_world_writable_scan_once: bool,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct AuthIdentity {
+    mode: Option<AuthMode>,
+    account_id: Option<String>,
+    email: Option<String>,
+}
+
+impl AuthIdentity {
+    fn from_auth(auth: Option<CodexAuth>) -> Self {
+        match auth {
+            Some(auth) => Self {
+                mode: Some(auth.mode),
+                account_id: auth.get_account_id(),
+                email: auth.get_account_email(),
+            },
+            None => Self {
+                mode: None,
+                account_id: None,
+                email: None,
+            },
+        }
+    }
+
+    fn label(&self) -> String {
+        match self.mode {
+            Some(AuthMode::ChatGPT) => {
+                if let Some(email) = &self.email {
+                    format!("ChatGPT ({email})")
+                } else if let Some(account_id) = &self.account_id {
+                    format!("ChatGPT (workspace {account_id})")
+                } else {
+                    "ChatGPT (unknown account)".to_string()
+                }
+            }
+            Some(AuthMode::ApiKey) => "API key".to_string(),
+            None => "logged out".to_string(),
+        }
+    }
+}
+
+fn auth_change_message(old: &AuthIdentity, new: &AuthIdentity) -> String {
+    let old_label = old.label();
+    let new_label = new.label();
+
+    match (old.mode.is_some(), new.mode.is_some()) {
+        (false, true) => format!("Auth updated: logged in as {new_label}."),
+        (true, false) => format!("Auth updated: logged out (was {old_label})."),
+        (true, true) => format!("Auth updated: {old_label} -> {new_label}."),
+        (false, false) => "Auth updated: logged out.".to_string(),
+    }
 }
 
 fn normalize_harness_overrides_for_cwd(
@@ -920,6 +976,12 @@ impl App {
         let app_event_tx = AppEventSender::new(app_event_tx);
         emit_deprecation_notice(&app_event_tx, ollama_chat_support_notice);
         emit_project_config_warnings(&app_event_tx, &config);
+        let auth_watch = AuthWatch::start(&config.codex_home, app_event_tx.clone())
+            .map(Some)
+            .unwrap_or_else(|err| {
+                tracing::warn!(%err, "failed to start auth.json watcher");
+                None
+            });
 
         let harness_overrides =
             normalize_harness_overrides_for_cwd(harness_overrides, &config.cwd)?;
@@ -1058,6 +1120,7 @@ impl App {
             app_event_tx,
             chat_widget,
             auth_manager: auth_manager.clone(),
+            auth_watch,
             config,
             active_profile,
             cli_kv_overrides,
@@ -1517,6 +1580,20 @@ impl App {
             }
             AppEvent::FileSearchResult { query, matches } => {
                 self.chat_widget.apply_file_search_result(query, matches);
+            }
+            AppEvent::AuthFileChanged => {
+                let old_identity = AuthIdentity::from_auth(self.auth_manager.auth_cached());
+                self.auth_manager.reload();
+                let new_identity = AuthIdentity::from_auth(self.auth_manager.auth_cached());
+                if old_identity != new_identity {
+                    self.chat_widget.handle_auth_identity_changed();
+                    self.chat_widget
+                        .add_to_history(history_cell::new_warning_event(auth_change_message(
+                            &old_identity,
+                            &new_identity,
+                        )));
+                    tui.frame_requester().schedule_frame();
+                }
             }
             AppEvent::RateLimitSnapshotFetched(snapshot) => {
                 self.chat_widget.on_rate_limit_snapshot(Some(snapshot));
@@ -2508,6 +2585,7 @@ mod tests {
             app_event_tx,
             chat_widget,
             auth_manager,
+            auth_watch: None,
             config,
             active_profile: None,
             cli_kv_overrides: Vec::new(),
@@ -2560,6 +2638,7 @@ mod tests {
                 app_event_tx,
                 chat_widget,
                 auth_manager,
+                auth_watch: None,
                 config,
                 active_profile: None,
                 cli_kv_overrides: Vec::new(),

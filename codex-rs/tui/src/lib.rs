@@ -52,6 +52,7 @@ mod app_backtrack;
 mod app_event;
 mod app_event_sender;
 mod ascii_animation;
+mod auth_watch;
 mod bottom_pane;
 mod chatwidget;
 mod cli;

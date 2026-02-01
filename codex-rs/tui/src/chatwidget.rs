@@ -952,6 +952,16 @@ impl ChatWidget {
         }
     }
 
+    pub(crate) fn handle_auth_identity_changed(&mut self) {
+        self.rate_limit_snapshot = None;
+        self.plan_type = None;
+        self.rate_limit_warnings = RateLimitWarningState::default();
+        self.rate_limit_switch_prompt = RateLimitSwitchPromptState::default();
+        self.prefetch_rate_limits();
+        self.update_footer_rate_limit_summary();
+        self.request_redraw();
+    }
+
     pub(crate) fn on_rate_limit_snapshot(&mut self, snapshot: Option<RateLimitSnapshot>) {
         if let Some(mut snapshot) = snapshot {
             if snapshot.credits.is_none() {
