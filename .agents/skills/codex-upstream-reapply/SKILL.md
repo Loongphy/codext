@@ -24,6 +24,7 @@ description: "Tag-based upstream sync for a fork/secondary-development repo: fet
 - 禁止运行 `cargo test`（不需要写/跑测试）。
 - 不得生成测试代码或快照文件：确保本次变更里没有新增/修改测试代码或 `*.snap`/`*.snap.new`。
 - 在 `codex-rs` 目录下执行 `cargo build -p codex-cli`，确认能正常启动运行。
+- 更新根目录 `README.md` 的 `Codex build` 徽章版本：使用选定 `TAG` 的版本号，并附加该 tag 指向的短 commit（例如 `v0.94.0-dce99bc`）。
 
 ### 0) One-time setup（如果还没有）
 
@@ -56,7 +57,7 @@ git for-each-ref --sort=-creatordate --format='%(creatordate:iso8601) %(refname:
 
 ```bash
 # 建议在 OLD_BRANCH 上执行；省略 --old-branch 时默认使用当前分支作为 OLD_BRANCH
-bash ~/.codex/skills/codex-upstream-reapply/scripts/start_from_tag.sh \
+bash .agents/skills/codex-upstream-reapply/scripts/start_from_tag.sh \
   --remote upstream --tag TAG
 ```
 
@@ -71,7 +72,7 @@ bash ~/.codex/skills/codex-upstream-reapply/scripts/start_from_tag.sh \
 如果基线推断可疑（脚本会提示），请显式指定旧分支基线 tag：
 
 ```bash
-bash ~/.codex/skills/codex-upstream-reapply/scripts/start_from_tag.sh \
+bash .agents/skills/codex-upstream-reapply/scripts/start_from_tag.sh \
   --remote upstream --tag TAG \
   --old-base-tag v0.1
 ```

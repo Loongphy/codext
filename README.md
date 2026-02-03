@@ -1,6 +1,6 @@
 # Codex
 
-![Codex build](https://img.shields.io/badge/codex%20build-v0.94.0-2ea043)
+![Codex build](https://img.shields.io/badge/codex%20build-v0.94.0-dce99bc-2ea043)
 
 ![TUI](
 https://github.com/user-attachments/assets/127abbc2-cb30-4d6e-8a81-ce707260c045)
@@ -18,7 +18,7 @@ cargo run --bin codex
 
 We will never merge code from the upstream repo; instead, we re-implement our changes on top of the latest upstream code.
 
-Iteration flow (aligned with `skills/codex-upstream-reapply`):
+Iteration flow (aligned with `.agents/skills/codex-upstream-reapply`):
 
 ```mermaid
 flowchart TD
@@ -67,17 +67,7 @@ model = "gpt-5.2-codex"
 
 ## Skills
 
-When syncing to the latest upstream codex version, use `skills/codex-upstream-reapply` to re-implement our custom requirements on top of the newest code, avoiding merge conflicts from the old branch history.
-
-Usage: copy `skills/codex-upstream-reapply` into `~/.codex/skills`, for example:
-
-```
-~/.codex/skills/
-└── codex-upstream-reapply/
-    ├── SKILL.md
-    ├── references/
-    └── scripts/
-```
+When syncing to the latest upstream codex version, use `.agents/skills/codex-upstream-reapply` to re-implement our custom requirements on top of the newest code, avoiding merge conflicts from the old branch history.
 
 Example:
 
