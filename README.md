@@ -1,6 +1,6 @@
 # Codex
 
-![Codex build](https://img.shields.io/badge/codex%20build-v0.92.0-2ea043)
+![Codex build](https://img.shields.io/badge/codex%20build-v0.94.0-2ea043)
 
 ![TUI](
 https://github.com/user-attachments/assets/127abbc2-cb30-4d6e-8a81-ce707260c045)
