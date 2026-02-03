@@ -51,11 +51,15 @@ async fn list_collaboration_modes_returns_presets() -> Result<()> {
         pair_programming_preset(),
         execute_preset(),
     ];
+    let base_model = items.first().and_then(|item| item.model.clone());
     assert_eq!(expected.len(), items.len());
     for (expected_mask, actual_mask) in expected.iter().zip(items.iter()) {
         assert_eq!(expected_mask.name, actual_mask.name);
         assert_eq!(expected_mask.mode, actual_mask.mode);
-        assert_eq!(expected_mask.model, actual_mask.model);
+        match base_model.as_ref() {
+            Some(model) => assert_eq!(actual_mask.model.as_deref(), Some(model.as_str())),
+            None => assert_eq!(actual_mask.model, None),
+        }
         assert_eq!(expected_mask.reasoning_effort, actual_mask.reasoning_effort);
         assert_eq!(
             expected_mask.developer_instructions,
