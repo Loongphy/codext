@@ -10,6 +10,7 @@ This file captures the full set of changes currently in the working tree.
 ## TUI auth.json watcher
 - The running TUI now watches `CODEX_HOME/auth.json` and reloads auth when the file changes.
 - When the account identity changes, the TUI surfaces a warning in the transcript (including old/new emails when available).
+- Auth change warnings now show the account plan type (e.g., Plus/Team/Free/Pro) instead of the generic ChatGPT label.
 - Rate-limit state and polling are refreshed after auth changes so the header reflects the new account.
 
 ## Collaboration modes and config overrides

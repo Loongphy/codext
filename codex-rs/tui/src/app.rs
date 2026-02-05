@@ -64,6 +64,7 @@ use codex_core::protocol::TokenUsage;
 use codex_core::windows_sandbox::WindowsSandboxLevelExt;
 use codex_otel::OtelManager;
 use codex_protocol::ThreadId;
+use codex_protocol::account::PlanType;
 use codex_protocol::config_types::Personality;
 #[cfg(target_os = "windows")]
 use codex_protocol::config_types::WindowsSandboxLevel;
@@ -583,6 +584,7 @@ struct AuthIdentity {
     mode: Option<AuthMode>,
     account_id: Option<String>,
     email: Option<String>,
+    plan_type: Option<PlanType>,
 }
 
 impl AuthIdentity {
@@ -592,11 +594,13 @@ impl AuthIdentity {
                 mode: Some(auth.api_auth_mode()),
                 account_id: auth.get_account_id(),
                 email: auth.get_account_email(),
+                plan_type: auth.account_plan_type(),
             },
             None => Self {
                 mode: None,
                 account_id: None,
                 email: None,
+                plan_type: None,
             },
         }
     }
@@ -604,12 +608,16 @@ impl AuthIdentity {
     fn label(&self) -> String {
         match self.mode {
             Some(AuthMode::Chatgpt | AuthMode::ChatgptAuthTokens) => {
+                let plan_label = self
+                    .plan_type
+                    .map(|plan_type| format!("{plan_type:?}"))
+                    .unwrap_or_else(|| "ChatGPT".to_string());
                 if let Some(email) = &self.email {
-                    format!("ChatGPT ({email})")
+                    format!("{plan_label} ({email})")
                 } else if let Some(account_id) = &self.account_id {
-                    format!("ChatGPT (workspace {account_id})")
+                    format!("{plan_label} (workspace {account_id})")
                 } else {
-                    "ChatGPT (unknown account)".to_string()
+                    format!("{plan_label} (unknown account)")
                 }
             }
             Some(AuthMode::ApiKey) => "API key".to_string(),
