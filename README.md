@@ -1,6 +1,6 @@
 # Codex
 
-![Codex build](https://img.shields.io/badge/codex%20build-v0.94.0-dce99bc-2ea043)
+![Codex build](https://img.shields.io/static/v1?label=codex%20build&message=v0.98.0-8246468&color=2ea043)
 
 ![TUI](
 https://github.com/user-attachments/assets/127abbc2-cb30-4d6e-8a81-ce707260c045)
@@ -72,7 +72,7 @@ When syncing to the latest upstream codex version, use `.agents/skills/codex-ups
 Example:
 
 ```
-$codex-upstream-reapply  update latest version
+$codex-upstream-reapply old_branch feat/rust-v0.94.0, new origin tag: rust-v0.98.0
 ```
 
 ## Credits
