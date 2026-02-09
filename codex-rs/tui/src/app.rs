@@ -39,6 +39,7 @@ use codex_app_server_protocol::ConfigLayerSource;
 use codex_core::AuthManager;
 use codex_core::CodexAuth;
 use codex_core::ThreadManager;
+use codex_core::auth::AuthReloadStatus;
 use codex_core::config::Config;
 use codex_core::config::ConfigBuilder;
 use codex_core::config::ConfigOverrides;
@@ -105,6 +106,8 @@ use toml::Value as TomlValue;
 
 const EXTERNAL_EDITOR_HINT: &str = "Save and close external editor to continue.";
 const THREAD_EVENT_CHANNEL_CAPACITY: usize = 32768;
+const AUTH_RELOAD_RETRY_DELAY: Duration = Duration::from_secs(5);
+const AUTH_RELOAD_MAX_ATTEMPTS: u8 = 3;
 /// Baseline cadence for periodic stream commit animation ticks.
 ///
 /// Smooth-mode streaming drains one line per tick, so this interval controls
@@ -651,6 +654,57 @@ fn normalize_harness_overrides_for_cwd(
 }
 
 impl App {
+    fn schedule_auth_reload_retry(&self, attempt: u8) {
+        if attempt >= AUTH_RELOAD_MAX_ATTEMPTS {
+            return;
+        }
+
+        let next_attempt = attempt + 1;
+        let app_event_tx = self.app_event_tx.clone();
+        tokio::spawn(async move {
+            tokio::time::sleep(AUTH_RELOAD_RETRY_DELAY).await;
+            app_event_tx.send(AppEvent::AuthFileChangedRetry {
+                attempt: next_attempt,
+            });
+        });
+    }
+
+    fn handle_auth_file_changed(&mut self, tui: &mut tui::Tui, attempt: u8) {
+        let old_identity = AuthIdentity::from_auth(self.auth_manager.auth_cached());
+        match self.auth_manager.reload_with_status() {
+            AuthReloadStatus::Reloaded { .. } => {
+                let new_identity = AuthIdentity::from_auth(self.auth_manager.auth_cached());
+                if old_identity != new_identity {
+                    self.chat_widget.handle_auth_identity_changed();
+                    self.chat_widget
+                        .add_to_history(history_cell::new_warning_event(auth_change_message(
+                            &old_identity,
+                            &new_identity,
+                        )));
+                    tui.frame_requester().schedule_frame();
+                }
+            }
+            AuthReloadStatus::Failed => {
+                if attempt < AUTH_RELOAD_MAX_ATTEMPTS {
+                    let next_attempt = attempt + 1;
+                    let retry_delay_secs = AUTH_RELOAD_RETRY_DELAY.as_secs();
+                    tracing::warn!(
+                        "auth reload failed; scheduling retry {next_attempt}/{AUTH_RELOAD_MAX_ATTEMPTS} in {retry_delay_secs}s"
+                    );
+                    self.schedule_auth_reload_retry(attempt);
+                    return;
+                }
+
+                self.chat_widget
+                    .add_to_history(history_cell::new_warning_event(
+                        "Auth update detected, but reloading credentials failed after 3 attempts. Please run `codex login` again or restart Codex."
+                            .to_string(),
+                    ));
+                tui.frame_requester().schedule_frame();
+            }
+        }
+    }
+
     pub fn chatwidget_init_for_forked_or_resumed_thread(
         &self,
         tui: &mut tui::Tui,
@@ -1626,18 +1680,10 @@ impl App {
                 self.chat_widget.apply_file_search_result(query, matches);
             }
             AppEvent::AuthFileChanged => {
-                let old_identity = AuthIdentity::from_auth(self.auth_manager.auth_cached());
-                self.auth_manager.reload();
-                let new_identity = AuthIdentity::from_auth(self.auth_manager.auth_cached());
-                if old_identity != new_identity {
-                    self.chat_widget.handle_auth_identity_changed();
-                    self.chat_widget
-                        .add_to_history(history_cell::new_warning_event(auth_change_message(
-                            &old_identity,
-                            &new_identity,
-                        )));
-                    tui.frame_requester().schedule_frame();
-                }
+                self.handle_auth_file_changed(tui, 1);
+            }
+            AppEvent::AuthFileChangedRetry { attempt } => {
+                self.handle_auth_file_changed(tui, attempt);
             }
             AppEvent::RateLimitSnapshotFetched(snapshot) => {
                 self.chat_widget.on_rate_limit_snapshot(Some(snapshot));

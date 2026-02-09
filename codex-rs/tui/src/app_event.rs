@@ -53,6 +53,10 @@ pub(crate) enum AppEvent {
     CodexEvent(Event),
     /// Auth file change detected; reload auth state.
     AuthFileChanged,
+    /// Retry auth reload after a delay; attempt starts at 2.
+    AuthFileChangedRetry {
+        attempt: u8,
+    },
     /// Open the agent picker for switching active threads.
     OpenAgentPicker,
     /// Switch the active thread to the selected agent.

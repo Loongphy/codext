@@ -9,9 +9,10 @@ use notify::Watcher;
 use std::ffi::OsStr;
 use std::path::Path;
 use std::sync::Arc;
-use std::sync::Mutex;
+use std::sync::atomic::AtomicU64;
+use std::sync::atomic::Ordering;
+use std::thread;
 use std::time::Duration;
-use std::time::Instant;
 
 const AUTH_WATCH_DEBOUNCE: Duration = Duration::from_millis(250);
 
@@ -23,17 +24,25 @@ impl AuthWatch {
     pub(crate) fn start(codex_home: &Path, app_event_tx: AppEventSender) -> notify::Result<Self> {
         let auth_path = codex_home.join("auth.json");
         let auth_file_name = auth_path.file_name().map(OsStr::to_os_string);
-        let debounce = Arc::new(Mutex::new(None::<Instant>));
+        let generation = Arc::new(AtomicU64::new(0));
 
         let mut watcher = notify::recommended_watcher(move |res| match res {
             Ok(event) => {
                 if !is_auth_json_event(&event, auth_path.as_path(), auth_file_name.as_deref()) {
                     return;
                 }
-                if !debounce_allows(&debounce) {
-                    return;
-                }
-                app_event_tx.send(AppEvent::AuthFileChanged);
+
+                // Trailing debounce: only emit after a short quiet window so we avoid
+                // reloading from a partially-written auth.json.
+                let event_generation = generation.fetch_add(1, Ordering::SeqCst) + 1;
+                let generation = Arc::clone(&generation);
+                let app_event_tx = app_event_tx.clone();
+                thread::spawn(move || {
+                    thread::sleep(AUTH_WATCH_DEBOUNCE);
+                    if generation.load(Ordering::SeqCst) == event_generation {
+                        app_event_tx.send(AppEvent::AuthFileChanged);
+                    }
+                });
             }
             Err(err) => {
                 tracing::warn!(%err, "auth.json watcher error");
@@ -61,20 +70,4 @@ fn is_relevant_kind(kind: EventKind) -> bool {
         kind,
         EventKind::Create(_) | EventKind::Modify(_) | EventKind::Remove(_)
     )
-}
-
-fn debounce_allows(debounce: &Arc<Mutex<Option<Instant>>>) -> bool {
-    let mut guard = match debounce.lock() {
-        Ok(guard) => guard,
-        Err(_) => return false,
-    };
-    let now = Instant::now();
-    let should_emit = match *guard {
-        Some(last) => now.duration_since(last) >= AUTH_WATCH_DEBOUNCE,
-        None => true,
-    };
-    if should_emit {
-        *guard = Some(now);
-    }
-    should_emit
 }
