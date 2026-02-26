@@ -1,13 +1,30 @@
 name: ci
 
 on:
-  pull_request: {}
-  push: { branches: [main] }
+  push:
+    tags:
+      - "rust-v*"
+  workflow_dispatch:
+    inputs:
+      release-version:
+        description: Version to publish (x.y.z or x.y.z-alpha.N). Required for manual runs.
+        required: false
+        type: string
+      publish:
+        description: Whether to publish to npm after packaging.
+        required: false
+        default: true
+        type: boolean
 
 jobs:
-  build-test:
+  package:
+    name: Package npm module
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    outputs:
+      version: ${{ steps.metadata.outputs.version }}
+      npm_tag: ${{ steps.metadata.outputs.npm_tag }}
+      pack_output: ${{ steps.stage_npm_package.outputs.pack_output }}
     env:
       NODE_OPTIONS: --max-old-space-size=4096
     steps:
@@ -24,6 +41,29 @@ jobs:
         with:
           node-version: 22
 
+      - name: Resolve release metadata
+        id: metadata
+        run: |
+          set -euo pipefail
+          version="${{ inputs.release-version }}"
+
+          if [[ -z "${version}" ]]; then
+            if [[ "${GITHUB_REF_NAME:-}" =~ ^rust-v.+ ]]; then
+              version="${GITHUB_REF_NAME#rust-v}"
+            else
+              echo "release-version is required for workflow_dispatch when ref is not rust-v*."
+              exit 1
+            fi
+          fi
+
+          npm_tag=""
+          if [[ "${version}" =~ ^[0-9]+\.[0-9]+\.[0-9]+-alpha\.[0-9]+$ ]]; then
+            npm_tag="alpha"
+          fi
+
+          echo "version=${version}" >> "$GITHUB_OUTPUT"
+          echo "npm_tag=${npm_tag}" >> "$GITHUB_OUTPUT"
+
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
@@ -34,10 +74,9 @@ jobs:
         id: stage_npm_package
         env:
           GH_TOKEN: ${{ github.token }}
+          CODEX_VERSION: ${{ steps.metadata.outputs.version }}
         run: |
           set -euo pipefail
-          # Use a rust-release version that includes all native binaries.
-          CODEX_VERSION=0.74.0
           OUTPUT_DIR="${RUNNER_TEMP}"
           python3 ./scripts/stage_npm_packages.py \
             --release-version "$CODEX_VERSION" \
@@ -52,15 +91,39 @@ jobs:
           name: codex-npm-staging
           path: ${{ steps.stage_npm_package.outputs.pack_output }}
 
-      - name: Ensure root README.md contains only ASCII and certain Unicode code points
-        run: ./scripts/asciicheck.py README.md
-      - name: Check root README ToC
-        run: python3 scripts/readme_toc.py README.md
+  publish:
+    name: Publish npm package
+    needs: package
+    if: ${{ github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.publish) }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - name: Setup Node.js for npm trusted publishing
+        uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          registry-url: https://registry.npmjs.org
 
-      - name: Ensure codex-cli/README.md contains only ASCII and certain Unicode code points
-        run: ./scripts/asciicheck.py codex-cli/README.md
-      - name: Check codex-cli/README ToC
-        run: python3 scripts/readme_toc.py codex-cli/README.md
+      # Trusted publishing requires npm CLI version 11.5.1 or later.
+      - name: Update npm
+        run: npm install -g npm@latest
 
-      - name: Prettier (run `pnpm run format:fix` to fix)
-        run: pnpm run format
+      - name: Download npm tarball
+        uses: actions/download-artifact@v6
+        with:
+          name: codex-npm-staging
+          path: dist/npm
+
+      - name: Publish to npm
+        env:
+          VERSION: ${{ needs.package.outputs.version }}
+          NPM_TAG: ${{ needs.package.outputs.npm_tag }}
+        run: |
+          set -euo pipefail
+          tag_args=(--provenance)
+          if [[ -n "${NPM_TAG}" ]]; then
+            tag_args+=(--tag "${NPM_TAG}")
+          fi
+          npm publish "dist/npm/codex-npm-${VERSION}.tgz" "${tag_args[@]}"

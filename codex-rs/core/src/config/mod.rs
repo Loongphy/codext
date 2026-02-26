@@ -2,6 +2,7 @@ use crate::auth::AuthCredentialsStoreMode;
 use crate::config::edit::ConfigEdit;
 use crate::config::edit::ConfigEditsBuilder;
 use crate::config::types::AppsConfigToml;
+use crate::config::types::CollaborationModeOverrides;
 use crate::config::types::DEFAULT_OTEL_ENVIRONMENT;
 use crate::config::types::History;
 use crate::config::types::McpServerConfig;
@@ -193,6 +194,9 @@ pub struct Config {
     /// When set to `true`, `AgentReasoningRawContentEvent` events will be shown in the UI/output.
     /// Defaults to `false`.
     pub show_raw_agent_reasoning: bool,
+
+    /// Optional overrides for collaboration mode presets.
+    pub collaboration_modes: Option<CollaborationModeOverrides>,
 
     /// User-provided instructions from AGENTS.md.
     pub user_instructions: Option<String>,
@@ -1007,6 +1011,9 @@ pub struct ConfigToml {
     /// When set to `true`, `AgentReasoningRawContentEvent` events will be shown in the UI/output.
     /// Defaults to `false`.
     pub show_raw_agent_reasoning: Option<bool>,
+
+    /// Optional overrides for collaboration mode presets.
+    pub collaboration_modes: Option<CollaborationModeOverrides>,
 
     pub model_reasoning_effort: Option<ReasoningEffort>,
     pub model_reasoning_summary: Option<ReasoningSummary>,
@@ -1872,6 +1879,7 @@ impl Config {
                 .show_raw_agent_reasoning
                 .or(show_raw_agent_reasoning)
                 .unwrap_or(false),
+            collaboration_modes: cfg.collaboration_modes,
             model_reasoning_effort: config_profile
                 .model_reasoning_effort
                 .or(cfg.model_reasoning_effort),

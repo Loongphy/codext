@@ -4,6 +4,7 @@ use crate::app_event::ExitMode;
 #[cfg(target_os = "windows")]
 use crate::app_event::WindowsSandboxEnableMode;
 use crate::app_event_sender::AppEventSender;
+use crate::auth_watch::AuthWatch;
 use crate::bottom_pane::ApprovalRequest;
 use crate::bottom_pane::FeedbackAudience;
 use crate::bottom_pane::SelectionItem;
@@ -31,10 +32,12 @@ use crate::tui;
 use crate::tui::TuiEvent;
 use crate::update_action::UpdateAction;
 use codex_ansi_escape::ansi_escape_line;
+use codex_app_server_protocol::AuthMode;
 use codex_app_server_protocol::ConfigLayerSource;
 use codex_core::AuthManager;
 use codex_core::CodexAuth;
 use codex_core::ThreadManager;
+use codex_core::auth::AuthReloadStatus;
 use codex_core::config::Config;
 use codex_core::config::ConfigBuilder;
 use codex_core::config::ConfigOverrides;
@@ -60,6 +63,7 @@ use codex_core::windows_sandbox::WindowsSandboxLevelExt;
 use codex_otel::OtelManager;
 use codex_otel::TelemetryAuthMode;
 use codex_protocol::ThreadId;
+use codex_protocol::account::PlanType;
 use codex_protocol::config_types::Personality;
 #[cfg(target_os = "windows")]
 use codex_protocol::config_types::WindowsSandboxLevel;
@@ -101,6 +105,8 @@ use toml::Value as TomlValue;
 
 const EXTERNAL_EDITOR_HINT: &str = "Save and close external editor to continue.";
 const THREAD_EVENT_CHANNEL_CAPACITY: usize = 32768;
+const AUTH_RELOAD_RETRY_DELAY: Duration = Duration::from_secs(5);
+const AUTH_RELOAD_MAX_ATTEMPTS: u8 = 3;
 /// Baseline cadence for periodic stream commit animation ticks.
 ///
 /// Smooth-mode streaming drains one line per tick, so this interval controls
@@ -520,6 +526,8 @@ pub(crate) struct App {
     pub(crate) app_event_tx: AppEventSender,
     pub(crate) chat_widget: ChatWidget,
     pub(crate) auth_manager: Arc<AuthManager>,
+    #[allow(dead_code)]
+    auth_watch: Option<AuthWatch>,
     /// Config is stored here so we can recreate ChatWidgets as needed.
     pub(crate) config: Config,
     pub(crate) active_profile: Option<String>,
@@ -589,6 +597,65 @@ struct WindowsSandboxState {
     skip_world_writable_scan_once: bool,
 }
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct AuthIdentity {
+    mode: Option<AuthMode>,
+    account_id: Option<String>,
+    email: Option<String>,
+    plan_type: Option<PlanType>,
+}
+
+impl AuthIdentity {
+    fn from_auth(auth: Option<CodexAuth>) -> Self {
+        match auth {
+            Some(auth) => Self {
+                mode: Some(auth.api_auth_mode()),
+                account_id: auth.get_account_id(),
+                email: auth.get_account_email(),
+                plan_type: auth.account_plan_type(),
+            },
+            None => Self {
+                mode: None,
+                account_id: None,
+                email: None,
+                plan_type: None,
+            },
+        }
+    }
+
+    fn label(&self) -> String {
+        match self.mode {
+            Some(AuthMode::Chatgpt | AuthMode::ChatgptAuthTokens) => {
+                let plan_label = self
+                    .plan_type
+                    .map(|plan_type| format!("{plan_type:?}"))
+                    .unwrap_or_else(|| "ChatGPT".to_string());
+                if let Some(email) = &self.email {
+                    format!("{plan_label} ({email})")
+                } else if let Some(account_id) = &self.account_id {
+                    format!("{plan_label} (workspace {account_id})")
+                } else {
+                    format!("{plan_label} (unknown account)")
+                }
+            }
+            Some(AuthMode::ApiKey) => "API key".to_string(),
+            None => "logged out".to_string(),
+        }
+    }
+}
+
+fn auth_change_message(old: &AuthIdentity, new: &AuthIdentity) -> String {
+    let old_label = old.label();
+    let new_label = new.label();
+
+    match (old.mode.is_some(), new.mode.is_some()) {
+        (false, true) => format!("Auth updated: logged in as {new_label}."),
+        (true, false) => format!("Auth updated: logged out (was {old_label})."),
+        (true, true) => format!("Auth updated: {old_label} -> {new_label}."),
+        (false, false) => "Auth updated: logged out.".to_string(),
+    }
+}
+
 fn normalize_harness_overrides_for_cwd(
     mut overrides: ConfigOverrides,
     base_cwd: &Path,
@@ -607,6 +674,57 @@ fn normalize_harness_overrides_for_cwd(
 }
 
 impl App {
+    fn schedule_auth_reload_retry(&self, attempt: u8) {
+        if attempt >= AUTH_RELOAD_MAX_ATTEMPTS {
+            return;
+        }
+
+        let next_attempt = attempt + 1;
+        let app_event_tx = self.app_event_tx.clone();
+        tokio::spawn(async move {
+            tokio::time::sleep(AUTH_RELOAD_RETRY_DELAY).await;
+            app_event_tx.send(AppEvent::AuthFileChangedRetry {
+                attempt: next_attempt,
+            });
+        });
+    }
+
+    fn handle_auth_file_changed(&mut self, tui: &mut tui::Tui, attempt: u8) {
+        let old_identity = AuthIdentity::from_auth(self.auth_manager.auth_cached());
+        match self.auth_manager.reload_with_status() {
+            AuthReloadStatus::Reloaded { .. } => {
+                let new_identity = AuthIdentity::from_auth(self.auth_manager.auth_cached());
+                if old_identity != new_identity {
+                    self.chat_widget.handle_auth_identity_changed();
+                    self.chat_widget
+                        .add_to_history(history_cell::new_warning_event(auth_change_message(
+                            &old_identity,
+                            &new_identity,
+                        )));
+                    tui.frame_requester().schedule_frame();
+                }
+            }
+            AuthReloadStatus::Failed => {
+                if attempt < AUTH_RELOAD_MAX_ATTEMPTS {
+                    let next_attempt = attempt + 1;
+                    let retry_delay_secs = AUTH_RELOAD_RETRY_DELAY.as_secs();
+                    tracing::warn!(
+                        "auth reload failed; scheduling retry {next_attempt}/{AUTH_RELOAD_MAX_ATTEMPTS} in {retry_delay_secs}s"
+                    );
+                    self.schedule_auth_reload_retry(attempt);
+                    return;
+                }
+
+                self.chat_widget
+                    .add_to_history(history_cell::new_warning_event(
+                        "Auth update detected, but reloading credentials failed after 3 attempts. Please run `codex login` again or restart Codex."
+                            .to_string(),
+                    ));
+                tui.frame_requester().schedule_frame();
+            }
+        }
+    }
+
     pub fn chatwidget_init_for_forked_or_resumed_thread(
         &self,
         tui: &mut tui::Tui,
@@ -1018,6 +1136,12 @@ impl App {
         let (app_event_tx, mut app_event_rx) = unbounded_channel();
         let app_event_tx = AppEventSender::new(app_event_tx);
         emit_project_config_warnings(&app_event_tx, &config);
+        let auth_watch = AuthWatch::start(&config.codex_home, app_event_tx.clone())
+            .map(Some)
+            .unwrap_or_else(|err| {
+                tracing::warn!(%err, "failed to start auth.json watcher");
+                None
+            });
         tui.set_notification_method(config.tui_notification_method);
 
         let harness_overrides =
@@ -1191,6 +1315,7 @@ impl App {
             app_event_tx,
             chat_widget,
             auth_manager: auth_manager.clone(),
+            auth_watch,
             config,
             active_profile,
             cli_kv_overrides,
@@ -1720,8 +1845,17 @@ impl App {
             AppEvent::FileSearchResult { query, matches } => {
                 self.chat_widget.apply_file_search_result(query, matches);
             }
+            AppEvent::AuthFileChanged => {
+                self.handle_auth_file_changed(tui, 1);
+            }
+            AppEvent::AuthFileChangedRetry { attempt } => {
+                self.handle_auth_file_changed(tui, attempt);
+            }
             AppEvent::RateLimitSnapshotFetched(snapshot) => {
                 self.chat_widget.on_rate_limit_snapshot(Some(snapshot));
+            }
+            AppEvent::GitStatusFetched(summary) => {
+                self.chat_widget.on_git_status_update(summary);
             }
             AppEvent::ConnectorsLoaded { result, is_final } => {
                 self.chat_widget.on_connectors_loaded(result, is_final);
@@ -1731,7 +1865,7 @@ impl App {
                 self.refresh_status_line();
             }
             AppEvent::UpdateModel(model) => {
-                self.chat_widget.set_model(&model);
+                self.chat_widget.set_base_model(&model);
                 self.refresh_status_line();
             }
             AppEvent::UpdateCollaborationMode(mask) => {
@@ -2707,7 +2841,7 @@ impl App {
         // TODO(aibrahim): Remove this and don't use config as a state object.
         // Instead, explicitly pass the stored collaboration mode's effort into new sessions.
         self.config.model_reasoning_effort = effort;
-        self.chat_widget.set_reasoning_effort(effort);
+        self.chat_widget.set_base_reasoning_effort(effort);
     }
 
     fn on_update_personality(&mut self, personality: Personality) {
@@ -3176,6 +3310,7 @@ mod tests {
             app_event_tx,
             chat_widget,
             auth_manager,
+            auth_watch: None,
             config,
             active_profile: None,
             cli_kv_overrides: Vec::new(),
@@ -3234,6 +3369,7 @@ mod tests {
                 app_event_tx,
                 chat_widget,
                 auth_manager,
+                auth_watch: None,
                 config,
                 active_profile: None,
                 cli_kv_overrides: Vec::new(),
