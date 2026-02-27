@@ -1,60 +1,94 @@
-<p align="center"><code>npm i -g @openai/codex</code><br />or <code>brew install --cask codex</code></p>
-<p align="center"><strong>Codex CLI</strong> is a coding agent from OpenAI that runs locally on your computer.
-<p align="center">
-  <img src="https://github.com/openai/codex/blob/main/.github/codex-cli-splash.png" alt="Codex CLI splash" width="80%" />
-</p>
-</br>
-If you want Codex in your code editor (VS Code, Cursor, Windsurf), <a href="https://developers.openai.com/codex/ide">install in your IDE.</a>
-</br>If you want the desktop app experience, run <code>codex app</code> or visit <a href="https://chatgpt.com/codex?app-landing-page=true">the Codex App page</a>.
-</br>If you are looking for the <em>cloud-based agent</em> from OpenAI, <strong>Codex Web</strong>, go to <a href="https://chatgpt.com/codex">chatgpt.com/codex</a>.</p>
+# Codex
 
----
+![Codex build](https://img.shields.io/static/v1?label=codex%20build&message=v0.104.0-10553fa&color=2ea043)
 
-## Quickstart
+![TUI](
+https://github.com/user-attachments/assets/127abbc2-cb30-4d6e-8a81-ce707260c045)
 
-### Installing and running Codex CLI
+This is strictly a personal hobby project, forked from [openai/codex](https://github.com/openai/codex).
 
-Install globally with your preferred package manager:
+## Quick Start
 
 ```shell
-# Install using npm
-npm install -g @openai/codex
+cd codex-rs
+cargo run --bin codex
 ```
+
+## Install From GitHub Release
+
+### Bash (Linux/macOS)
+
+```bash
+sh -c "$(curl -fsSL https://raw.githubusercontent.com/Loongphy/codext/main/scripts/install.sh)"
+```
+
+### PowerShell (Windows)
+
+```powershell
+irm https://raw.githubusercontent.com/Loongphy/codext/main/scripts/install.ps1 | iex
+```
+
+## Project Goals
+
+We will never merge code from the upstream repo; instead, we re-implement our changes on top of the latest upstream code.
+
+Iteration flow (aligned with `.agents/skills/codex-upstream-reapply`):
+
+```mermaid
+flowchart TD
+    A[Freeze old branch: commit changes + intent docs] --> B[Fetch upstream tags]
+    B --> C[Pick tag + create new branch from tag]
+    C --> D[Generate reimplementation bundle]
+    D --> E[Read old branch + bundle for intent]
+    E --> F[Re-implement changes on new branch]
+    F --> G[Sanity check diffs vs tag]
+    G --> H[Force-push to fork main]
+```
+
+> [!IMPORTANT]
+> **DO NOT USE IN PRODUCTION.**
+> To keep upstream sync easy, we do not write test code for what we changed. This project is for experimental use only.
+
+* **DX Focused:** Focus strictly on optimizing developer experience, **without adding new features**.
+* **Upstream Sync:** We sync with the upstream repository regularly.
+
+## What Changed
+
+* Added a TUI status header with model/effort, cwd, git summary, and rate-limit status.
+* Collaboration mode presets now accept per-mode overrides and default to the active `/model` settings.
+* TUI watches `auth.json` for external login changes and reloads auth automatically (with a warning on account switch).
+* Full change log: see [CHANGED.md](./CHANGED.md).
+
+## AGENT Local development check
+
+1. DO NOT update any test codes
+2. After making code changes, verify the CLI still launches:
 
 ```shell
-# Install using Homebrew
-brew install --cask codex
+cd ./codex-rs
+cargo run --bin codex
 ```
 
-Then simply run `codex` to get started.
+```toml
+# config.toml
+[collaboration_modes.plan]
+model = "gpt-5.2-codex"
+reasoning_effort = "xhigh"
 
-<details>
-<summary>You can also go to the <a href="https://github.com/openai/codex/releases/latest">latest GitHub Release</a> and download the appropriate binary for your platform.</summary>
+[collaboration_modes.code]
+model = "gpt-5.2-codex"
+```
 
-Each GitHub Release contains many executables, but in practice, you likely want one of these:
+## Skills
 
-- macOS
-  - Apple Silicon/arm64: `codex-aarch64-apple-darwin.tar.gz`
-  - x86_64 (older Mac hardware): `codex-x86_64-apple-darwin.tar.gz`
-- Linux
-  - x86_64: `codex-x86_64-unknown-linux-musl.tar.gz`
-  - arm64: `codex-aarch64-unknown-linux-musl.tar.gz`
+When syncing to the latest upstream codex version, use `.agents/skills/codex-upstream-reapply` to re-implement our custom requirements on top of the newest code, avoiding merge conflicts from the old branch history.
 
-Each archive contains a single entry with the platform baked into the name (e.g., `codex-x86_64-unknown-linux-musl`), so you likely want to rename it to `codex` after extracting it.
+Example:
 
-</details>
+```
+$codex-upstream-reapply old_branch feat/rust-v0.94.0, new origin tag: rust-v0.98.0
+```
 
-### Using Codex with your ChatGPT plan
+## Credits
 
-Run `codex` and select **Sign in with ChatGPT**. We recommend signing into your ChatGPT account to use Codex as part of your Plus, Pro, Team, Edu, or Enterprise plan. [Learn more about what's included in your ChatGPT plan](https://help.openai.com/en/articles/11369540-codex-in-chatgpt).
-
-You can also use Codex with an API key, but this requires [additional setup](https://developers.openai.com/codex/auth#sign-in-with-an-api-key).
-
-## Docs
-
-- [**Codex Documentation**](https://developers.openai.com/codex)
-- [**Contributing**](./docs/contributing.md)
-- [**Installing & building**](./docs/install.md)
-- [**Open source fund**](./docs/open-source-fund.md)
-
-This repository is licensed under the [Apache-2.0 License](LICENSE).
+Status bar design reference: <https://linux.do/t/topic/1481797>
