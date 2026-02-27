@@ -67,7 +67,7 @@ bash .agents/skills/codex-upstream-reapply/scripts/start_from_tag.sh \
 - 变更文件清单、diff patch、commit 列表
 -（默认）复制所有“变更过的 Markdown 意图文档”的旧版内容到 bundle 里
 -（可选）用 `--copy-all` 复制所有变更文件的旧版内容（用于离线阅读）
-并且会把 `OLD_BRANCH` 的 `README.md`、`CHANGED.md` 与 `.agents/skills/` 原样复制到 `NEW_BRANCH`（不改内容；如有差异会自动提交一次）。
+并且会把 `OLD_BRANCH` 的 `README.md`、`CHANGED.md`、`scripts/`、`.github/workflows/ci.yml` 与 `.agents/skills/` 原样复制到 `NEW_BRANCH`（不改内容；如有差异会自动提交一次）。
 
 如果基线推断可疑（脚本会提示），请显式指定旧分支基线 tag：
 

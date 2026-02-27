@@ -1,66 +1,139 @@
 name: ci
 
 on:
-  pull_request: {}
-  push: { branches: [main] }
+  push:
+    branches:
+      - main
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+
+concurrency:
+  group: ci-main-release-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
-  build-test:
+  metadata:
+    name: Resolve Release Metadata
     runs-on: ubuntu-latest
-    timeout-minutes: 10
-    env:
-      NODE_OPTIONS: --max-old-space-size=4096
+    outputs:
+      base_version: ${{ steps.meta.outputs.base_version }}
+      release_tag: ${{ steps.meta.outputs.release_tag }}
     steps:
-      - name: Checkout repository
+      - name: Checkout
         uses: actions/checkout@v6
 
-      - name: Setup pnpm
-        uses: pnpm/action-setup@v4
-        with:
-          run_install: false
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v6
-        with:
-          node-version: 22
-
-      - name: Install dependencies
-        run: pnpm install --frozen-lockfile
-
-      # stage_npm_packages.py requires DotSlash when staging releases.
-      - uses: facebook/install-dotslash@v2
-
-      - name: Stage npm package
-        id: stage_npm_package
-        env:
-          GH_TOKEN: ${{ github.token }}
+      - name: Resolve version/tag
+        id: meta
+        shell: bash
         run: |
           set -euo pipefail
-          # Use a rust-release version that includes all native binaries.
-          CODEX_VERSION=0.74.0
-          OUTPUT_DIR="${RUNNER_TEMP}"
-          python3 ./scripts/stage_npm_packages.py \
-            --release-version "$CODEX_VERSION" \
-            --package codex \
-            --output-dir "$OUTPUT_DIR"
-          PACK_OUTPUT="${OUTPUT_DIR}/codex-npm-${CODEX_VERSION}.tgz"
-          echo "pack_output=$PACK_OUTPUT" >> "$GITHUB_OUTPUT"
+          base_version="$(grep -m1 '^version' codex-rs/Cargo.toml | sed -E 's/version *= *\"([^\"]+)\".*/\1/')"
+          release_tag="v${base_version}"
 
-      - name: Upload staged npm package artifact
+          echo "base_version=${base_version}" >> "$GITHUB_OUTPUT"
+          echo "release_tag=${release_tag}" >> "$GITHUB_OUTPUT"
+
+  build-binaries:
+    name: Build ${{ matrix.target }}
+    needs: metadata
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+            archive_name: codex-x86_64-unknown-linux-gnu.tar.gz
+            binary_name: codex
+          - os: macos-latest
+            target: aarch64-apple-darwin
+            archive_name: codex-aarch64-apple-darwin.tar.gz
+            binary_name: codex
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+            archive_name: codex-x86_64-pc-windows-msvc.zip
+            binary_name: codex.exe
+    defaults:
+      run:
+        working-directory: codex-rs
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Install Linux build dependencies
+        if: ${{ runner.os == 'Linux' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends pkg-config libcap-dev
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Build codex
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo build --release --target "${{ matrix.target }}" --bin codex
+
+      - name: Package artifact (Unix)
+        if: ${{ runner.os != 'Windows' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          cp "target/${{ matrix.target }}/release/${{ matrix.binary_name }}" .
+          tar -czf "dist/${{ matrix.archive_name }}" "${{ matrix.binary_name }}"
+
+      - name: Package artifact (Windows)
+        if: ${{ runner.os == 'Windows' }}
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Path dist -Force | Out-Null
+          Copy-Item "target/${{ matrix.target }}/release/${{ matrix.binary_name }}" "${{ matrix.binary_name }}" -Force
+          Compress-Archive -Path "${{ matrix.binary_name }}" -DestinationPath "dist/${{ matrix.archive_name }}" -Force
+
+      - name: Upload artifact
         uses: actions/upload-artifact@v6
         with:
-          name: codex-npm-staging
-          path: ${{ steps.stage_npm_package.outputs.pack_output }}
+          name: release-${{ matrix.target }}
+          path: codex-rs/dist/${{ matrix.archive_name }}
 
-      - name: Ensure root README.md contains only ASCII and certain Unicode code points
-        run: ./scripts/asciicheck.py README.md
-      - name: Check root README ToC
-        run: python3 scripts/readme_toc.py README.md
+  github-release:
+    name: Publish GitHub Release
+    needs: [metadata, build-binaries]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download artifacts
+        uses: actions/download-artifact@v6
+        with:
+          pattern: release-*
+          merge-multiple: true
+          path: dist
 
-      - name: Ensure codex-cli/README.md contains only ASCII and certain Unicode code points
-        run: ./scripts/asciicheck.py codex-cli/README.md
-      - name: Check codex-cli/README ToC
-        run: python3 scripts/readme_toc.py codex-cli/README.md
+      - name: Create release notes
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat > release-notes.md <<'EOF'
+          Automated main-branch release for Codex CLI.
 
-      - name: Prettier (run `pnpm run format:fix` to fix)
-        run: pnpm run format
+          Includes binaries for:
+          - macOS (Apple Silicon)
+          - Linux (x86_64)
+          - Windows (x86_64)
+          EOF
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ needs.metadata.outputs.release_tag }}
+          name: v${{ needs.metadata.outputs.base_version }}
+          body_path: release-notes.md
+          prerelease: ${{ contains(needs.metadata.outputs.base_version, '-') }}
+          files: dist/*

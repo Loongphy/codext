@@ -277,6 +277,37 @@
         }
       ]
     },
+    "CollaborationModeOverride": {
+      "additionalProperties": false,
+      "description": "Overrides for a single collaboration mode preset.",
+      "properties": {
+        "model": {
+          "type": "string"
+        },
+        "reasoning_effort": {
+          "$ref": "#/definitions/ReasoningEffort"
+        }
+      },
+      "type": "object"
+    },
+    "CollaborationModeOverrides": {
+      "additionalProperties": false,
+      "description": "Optional overrides for collaboration mode presets.",
+      "properties": {
+        "code": {
+          "allOf": [
+            {
+              "$ref": "#/definitions/CollaborationModeOverride"
+            }
+          ],
+          "description": "Legacy alias for `default` mode overrides."
+        },
+        "plan": {
+          "$ref": "#/definitions/CollaborationModeOverride"
+        }
+      },
+      "type": "object"
+    },
     "ConfigProfile": {
       "additionalProperties": false,
       "description": "Collection of common configuration options that a user can define as a unit in `config.toml`.",
@@ -1562,6 +1593,14 @@
       ],
       "default": null,
       "description": "Preferred backend for storing CLI auth credentials. file (default): Use a file in the Codex home directory. keyring: Use an OS-specific keyring service. auto: Use the keyring if available, otherwise use a file."
+    },
+    "collaboration_modes": {
+      "allOf": [
+        {
+          "$ref": "#/definitions/CollaborationModeOverrides"
+        }
+      ],
+      "description": "Optional overrides for collaboration mode presets."
     },
     "commit_attribution": {
       "description": "Optional commit attribution text for commit message co-author trailers.\n\nSet to an empty string to disable automatic commit attribution.",

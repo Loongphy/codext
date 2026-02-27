@@ -210,16 +210,18 @@ echo "[INFO] Creating re-implementation bundle..."
 echo "[INFO] Creating new branch ${NEW_BRANCH} from tag ${TAG}..."
 git switch -c "${NEW_BRANCH}" "${TAG}"
 
-echo "[INFO] Copying README.md, CHANGED.md, and .agents/skills from ${OLD_BRANCH} (no modifications)..."
+echo "[INFO] Copying README.md, CHANGED.md, scripts/, .github/workflows/ci.yml, and .agents/skills from ${OLD_BRANCH} (no modifications)..."
 copy_file_from_old_branch "${OLD_BRANCH}" "README.md"
 copy_file_from_old_branch "${OLD_BRANCH}" "CHANGED.md"
+copy_path_from_old_branch "${OLD_BRANCH}" "scripts"
+copy_path_from_old_branch "${OLD_BRANCH}" ".github/workflows/ci.yml"
 copy_path_from_old_branch "${OLD_BRANCH}" ".agents/skills"
 if ! git diff --cached --quiet; then
-  if git commit -m "docs: copy README.md, CHANGED.md, and .agents/skills from ${OLD_BRANCH}"; then
-    echo "[OK] Committed README.md, CHANGED.md, and .agents/skills copy"
+  if git commit -m "docs: copy README.md, CHANGED.md, scripts, ci.yml, and .agents/skills from ${OLD_BRANCH}"; then
+    echo "[OK] Committed README.md, CHANGED.md, scripts, ci.yml, and .agents/skills copy"
   else
     echo "[WARN] Unable to commit copied docs/skills (git user.name/user.email?)."
-    echo "[WARN] Commit manually with: git commit -m \"docs: copy README.md, CHANGED.md, and .agents/skills from ${OLD_BRANCH}\""
+    echo "[WARN] Commit manually with: git commit -m \"docs: copy README.md, CHANGED.md, scripts, ci.yml, and .agents/skills from ${OLD_BRANCH}\""
   fi
 fi
 
