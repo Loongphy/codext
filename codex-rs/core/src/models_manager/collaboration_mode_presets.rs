@@ -1,3 +1,5 @@
+use crate::config::types::CollaborationModeOverride;
+use crate::config::types::CollaborationModeOverrides;
 use codex_protocol::config_types::CollaborationModeMask;
 use codex_protocol::config_types::ModeKind;
 use codex_protocol::config_types::TUI_VISIBLE_COLLABORATION_MODES;
@@ -27,6 +29,42 @@ pub(crate) fn builtin_collaboration_mode_presets(
     vec![plan_preset(), default_preset(collaboration_modes_config)]
 }
 
+/// Build collaboration mode presets, applying optional overrides and base defaults.
+pub fn collaboration_mode_presets_with_overrides(
+    base_model: &str,
+    base_effort: Option<ReasoningEffort>,
+    overrides: Option<&CollaborationModeOverrides>,
+) -> Vec<CollaborationModeMask> {
+    collaboration_mode_presets_with_overrides_and_config(
+        base_model,
+        base_effort,
+        overrides,
+        CollaborationModesConfig::default(),
+    )
+}
+
+/// Build collaboration mode presets, applying optional overrides and mode-feature flags.
+pub fn collaboration_mode_presets_with_overrides_and_config(
+    base_model: &str,
+    base_effort: Option<ReasoningEffort>,
+    overrides: Option<&CollaborationModeOverrides>,
+    collaboration_modes_config: CollaborationModesConfig,
+) -> Vec<CollaborationModeMask> {
+    let base_model = base_model.trim();
+    let base_model = (!base_model.is_empty()).then(|| base_model.to_string());
+    builtin_collaboration_mode_presets(collaboration_modes_config)
+        .into_iter()
+        .map(|preset| {
+            let override_for_mode = override_for_mode(overrides, &preset);
+            apply_overrides(preset, base_model.as_ref(), base_effort, override_for_mode)
+        })
+        .collect()
+}
+
+#[cfg(test)]
+pub fn test_builtin_collaboration_mode_presets() -> Vec<CollaborationModeMask> {
+    builtin_collaboration_mode_presets(CollaborationModesConfig::default())
+}
 fn plan_preset() -> CollaborationModeMask {
     CollaborationModeMask {
         name: ModeKind::Plan.display_name().to_string(),
@@ -102,6 +140,44 @@ fn asking_questions_guidance_message(default_mode_request_user_input: bool) -> S
     }
 }
 
+fn override_for_mode<'a>(
+    overrides: Option<&'a CollaborationModeOverrides>,
+    mode: &CollaborationModeMask,
+) -> Option<&'a CollaborationModeOverride> {
+    let overrides = overrides?;
+    match mode.mode {
+        Some(ModeKind::Plan) => overrides.plan.as_ref(),
+        Some(ModeKind::Default | ModeKind::PairProgramming | ModeKind::Execute) => {
+            overrides.code.as_ref()
+        }
+        None => None,
+    }
+}
+
+fn apply_overrides(
+    mut mode: CollaborationModeMask,
+    base_model: Option<&String>,
+    base_effort: Option<ReasoningEffort>,
+    overrides: Option<&CollaborationModeOverride>,
+) -> CollaborationModeMask {
+    let model = overrides
+        .and_then(|entry| entry.model.clone())
+        .or_else(|| base_model.cloned());
+    let effort = overrides
+        .and_then(|entry| entry.reasoning_effort)
+        .or(base_effort);
+    let should_override_effort =
+        overrides.and_then(|entry| entry.reasoning_effort).is_some() || base_effort.is_some();
+    let effort_update = should_override_effort.then_some(effort);
+
+    if let Some(model) = model {
+        mode.model = Some(model);
+    }
+    if let Some(effort) = effort_update {
+        mode.reasoning_effort = Some(effort);
+    }
+    mode
+}
 #[cfg(test)]
 mod tests {
     use super::*;

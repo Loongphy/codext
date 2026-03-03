@@ -65,6 +65,7 @@ mod app_event_sender;
 mod ascii_animation;
 #[cfg(all(not(target_os = "linux"), feature = "voice-input"))]
 mod audio_device;
+mod auth_watch;
 mod bottom_pane;
 mod chatwidget;
 mod cli;
@@ -82,6 +83,7 @@ mod external_editor;
 mod file_search;
 mod frames;
 mod get_git_diff;
+mod git_status;
 mod history_cell;
 pub mod insert_history;
 mod key_hint;
