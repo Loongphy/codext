@@ -19,6 +19,7 @@ use codex_protocol::protocol::TurnContextItem;
 /// Persistent, session-scoped state previously stored directly on `Session`.
 pub(crate) struct SessionState {
     pub(crate) session_configuration: SessionConfiguration,
+    project_docs_snapshot: Option<String>,
     pub(crate) history: ContextManager,
     pub(crate) latest_rate_limits: Option<RateLimitSnapshot>,
     pub(crate) server_reasoning_included: bool,
@@ -40,6 +41,7 @@ impl SessionState {
         let history = ContextManager::new();
         Self {
             session_configuration,
+            project_docs_snapshot: None,
             history,
             latest_rate_limits: None,
             server_reasoning_included: false,
@@ -73,6 +75,14 @@ impl SessionState {
 
     pub(crate) fn clone_history(&self) -> ContextManager {
         self.history.clone()
+    }
+
+    pub(crate) fn project_docs_snapshot(&self) -> Option<String> {
+        self.project_docs_snapshot.clone()
+    }
+
+    pub(crate) fn set_project_docs_snapshot(&mut self, snapshot: Option<String>) {
+        self.project_docs_snapshot = snapshot;
     }
 
     pub(crate) fn replace_history(

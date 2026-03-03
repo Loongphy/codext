@@ -206,6 +206,7 @@ use crate::mentions::collect_tool_mentions_from_messages;
 use crate::network_policy_decision::execpolicy_network_rule_amendment;
 use crate::plugins::PluginsManager;
 use crate::project_doc::get_user_instructions;
+use crate::project_doc::read_project_docs;
 use crate::protocol::AgentMessageContentDeltaEvent;
 use crate::protocol::AgentReasoningSectionBreakEvent;
 use crate::protocol::ApplyPatchApprovalRequestEvent;
@@ -1443,7 +1444,15 @@ impl Session {
                 }
             };
         session_configuration.thread_name = thread_name.clone();
-        let state = SessionState::new(session_configuration.clone());
+        let project_docs_snapshot = match read_project_docs(config.as_ref()).await {
+            Ok(snapshot) => snapshot,
+            Err(err) => {
+                warn!("failed to read project docs during session init: {err}");
+                None
+            }
+        };
+        let mut state = SessionState::new(session_configuration.clone());
+        state.set_project_docs_snapshot(project_docs_snapshot);
         let managed_network_requirements_enabled = config.managed_network_requirements_enabled();
         let network_approval = Arc::new(NetworkApprovalService::default());
         // The managed proxy can call back into core for allowlist-miss decisions.
@@ -2134,6 +2143,58 @@ impl Session {
                 sandbox_policy_changed,
             )
             .await)
+    }
+
+    async fn maybe_refresh_project_docs_for_user_turn(
+        &self,
+        sub_id: &str,
+        requested_cwd: Option<&PathBuf>,
+    ) {
+        let (config, previous_snapshot, effective_cwd) = {
+            let state = self.state.lock().await;
+            let mut config = (*state.session_configuration.original_config_do_not_use).clone();
+            let effective_cwd = requested_cwd
+                .cloned()
+                .unwrap_or_else(|| state.session_configuration.cwd.clone());
+            config.cwd = effective_cwd.clone();
+            (config, state.project_docs_snapshot(), effective_cwd)
+        };
+
+        let next_snapshot = match read_project_docs(&config).await {
+            Ok(snapshot) => snapshot,
+            Err(err) => {
+                warn!("failed to read project docs for refresh: {err}");
+                return;
+            }
+        };
+
+        if next_snapshot == previous_snapshot {
+            return;
+        }
+
+        let skills_outcome = self
+            .services
+            .skills_manager
+            .skills_for_cwd(&effective_cwd, false)
+            .await;
+        let allowed_skills_for_implicit_invocation =
+            skills_outcome.allowed_skills_for_implicit_invocation();
+        let user_instructions =
+            get_user_instructions(&config, Some(&allowed_skills_for_implicit_invocation)).await;
+
+        let mut state = self.state.lock().await;
+        state.set_project_docs_snapshot(next_snapshot);
+        state.session_configuration.user_instructions = user_instructions;
+        drop(state);
+
+        self.send_event_raw(Event {
+            id: sub_id.to_string(),
+            msg: EventMsg::Warning(WarningEvent {
+                message: "AGENTS.md instructions changed. Reloaded and applied starting this turn."
+                    .to_string(),
+            }),
+        })
+        .await;
     }
 
     async fn new_turn_from_configuration(
@@ -4050,6 +4111,10 @@ mod handlers {
             ),
             _ => unreachable!(),
         };
+
+        let requested_cwd = updates.cwd.clone();
+        sess.maybe_refresh_project_docs_for_user_turn(&sub_id, requested_cwd.as_ref())
+            .await;
 
         let Ok(current_context) = sess.new_turn_with_sub_id(sub_id, updates).await else {
             // new_turn_with_sub_id already emits the error event.
@@ -7003,6 +7068,69 @@ mod tests {
         assert_eq!(app.destructive_enabled, Some(false));
     }
 
+    #[tokio::test]
+    async fn refresh_project_docs_updates_user_instructions_and_emits_warning() {
+        let (session, _turn_context, rx) = make_session_and_context_with_rx().await;
+        let cwd = tempfile::tempdir().expect("create temp dir");
+        let agents_path = cwd.path().join("AGENTS.md");
+        std::fs::write(&agents_path, "initial").expect("write AGENTS.md");
+
+        {
+            let mut state = session.state.lock().await;
+            state.set_project_docs_snapshot(Some("initial".to_string()));
+        }
+
+        std::fs::write(&agents_path, "updated").expect("update AGENTS.md");
+
+        let cwd = cwd.path().to_path_buf();
+        session
+            .maybe_refresh_project_docs_for_user_turn("sub-1", Some(&cwd))
+            .await;
+
+        let warning = wait_for_warning_with_sub_id(&rx, "sub-1").await;
+        assert_eq!(
+            warning.message,
+            "AGENTS.md instructions changed. Reloaded and applied starting this turn."
+        );
+
+        let state = session.state.lock().await;
+        assert_eq!(state.project_docs_snapshot(), Some("updated".to_string()));
+        let user_instructions = state
+            .session_configuration
+            .user_instructions
+            .as_deref()
+            .expect("expected user instructions");
+        assert!(user_instructions.contains("updated"));
+    }
+
+    #[tokio::test]
+    async fn refresh_project_docs_unchanged_does_not_emit_warning() {
+        let (session, _turn_context, rx) = make_session_and_context_with_rx().await;
+        let cwd = tempfile::tempdir().expect("create temp dir");
+        let agents_path = cwd.path().join("AGENTS.md");
+        std::fs::write(&agents_path, "same").expect("write AGENTS.md");
+
+        {
+            let mut state = session.state.lock().await;
+            state.set_project_docs_snapshot(Some("same".to_string()));
+            state.session_configuration.user_instructions = Some("unchanged".to_string());
+        }
+
+        let cwd = cwd.path().to_path_buf();
+        session
+            .maybe_refresh_project_docs_for_user_turn("sub-2", Some(&cwd))
+            .await;
+
+        let event = tokio::time::timeout(StdDuration::from_millis(200), rx.recv()).await;
+        assert!(event.is_err(), "did not expect warning event");
+
+        let state = session.state.lock().await;
+        assert_eq!(
+            state.session_configuration.user_instructions.as_deref(),
+            Some("unchanged")
+        );
+    }
+
     #[test]
     fn filter_connectors_for_input_skips_duplicate_slug_mentions() {
         let connectors = vec![
@@ -8165,6 +8293,26 @@ mod tests {
                     return payload;
                 }
                 _ => continue,
+            }
+        }
+    }
+
+    async fn wait_for_warning_with_sub_id(
+        rx: &async_channel::Receiver<Event>,
+        sub_id: &str,
+    ) -> WarningEvent {
+        let deadline = StdDuration::from_secs(2);
+        let start = std::time::Instant::now();
+        loop {
+            let remaining = deadline.saturating_sub(start.elapsed());
+            let evt = tokio::time::timeout(remaining, rx.recv())
+                .await
+                .expect("timeout waiting for event")
+                .expect("event");
+            if evt.id == sub_id
+                && let EventMsg::Warning(payload) = evt.msg
+            {
+                return payload;
             }
         }
     }
