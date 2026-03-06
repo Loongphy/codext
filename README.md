@@ -1,6 +1,6 @@
 # Codex
 
-![Codex build](https://img.shields.io/static/v1?label=codex%20build&message=rust-v0.107.0-d0711a4&color=2ea043)
+![Codex build](https://img.shields.io/static/v1?label=codex%20build&message=rust-v0.111.0-36ab73925&color=2ea043)
 
 ![TUI](
 https://github.com/user-attachments/assets/127abbc2-cb30-4d6e-8a81-ce707260c045)

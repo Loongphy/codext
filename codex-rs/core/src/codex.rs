@@ -2179,8 +2179,17 @@ impl Session {
             .await;
         let allowed_skills_for_implicit_invocation =
             skills_outcome.allowed_skills_for_implicit_invocation();
+        let loaded_plugins = self
+            .services
+            .plugins_manager
+            .plugins_for_config(&config);
         let user_instructions =
-            get_user_instructions(&config, Some(&allowed_skills_for_implicit_invocation)).await;
+            get_user_instructions(
+                &config,
+                Some(&allowed_skills_for_implicit_invocation),
+                Some(loaded_plugins.capability_summaries()),
+            )
+            .await;
 
         let mut state = self.state.lock().await;
         state.set_project_docs_snapshot(next_snapshot);
