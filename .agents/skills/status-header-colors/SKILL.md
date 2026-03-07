@@ -77,3 +77,6 @@ if let Some(summary) = self.rate_limit_summary.as_ref() {
 - Only change colors if this skill explicitly instructs it; do not introduce new colors.
 - Keep the separator as dim to avoid competing with the segments.
 - Prefer the exact icon codes shown above unless the feature removes a segment entirely.
+- If a status-header segment depends on background-polled or async state (for example rate-limit
+  data fetched from `/usage`), the update path must explicitly request a redraw/frame after the
+  cached state changes so the header updates while the UI is otherwise idle.

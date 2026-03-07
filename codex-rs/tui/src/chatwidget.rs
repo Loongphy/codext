@@ -1851,6 +1851,9 @@ impl ChatWidget {
             self.rate_limit_snapshots_by_limit_id.clear();
         }
         self.refresh_status_line();
+        // Rate-limit polling happens off the main turn stream, so request a frame explicitly
+        // to keep header/status surfaces in sync while the UI is otherwise idle.
+        self.request_redraw();
     }
 
     pub(crate) fn on_git_status_update(&mut self, summary: Option<GitStatusSummary>) {
@@ -3586,10 +3589,10 @@ impl ChatWidget {
         #[cfg(target_os = "windows")]
         widget.bottom_pane.set_windows_degraded_sandbox_active(
             codex_core::windows_sandbox::ELEVATED_SANDBOX_NUX_ENABLED
-                    && matches!(
-                        WindowsSandboxLevel::from_config(&widget.config),
-                        WindowsSandboxLevel::RestrictedToken
-                    ),
+                && matches!(
+                    WindowsSandboxLevel::from_config(&widget.config),
+                    WindowsSandboxLevel::RestrictedToken
+                ),
         );
         widget.update_collaboration_mode_indicator();
         widget.refresh_model_display();
