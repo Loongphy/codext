@@ -48,6 +48,11 @@ def parse_args() -> argparse.Namespace:
         help="Optional workflow URL to reuse for native artifacts.",
     )
     parser.add_argument(
+        "--vendor-src",
+        type=Path,
+        help="Optional pre-populated vendor directory to reuse instead of downloading artifacts.",
+    )
+    parser.add_argument(
         "--output-dir",
         type=Path,
         default=None,
@@ -155,7 +160,9 @@ def main() -> int:
     final_messages = []
 
     try:
-        if native_components:
+        if args.vendor_src is not None:
+            vendor_src = args.vendor_src.resolve()
+        elif native_components:
             workflow_url, resolved_head_sha = resolve_workflow_url(
                 args.release_version, args.workflow_url
             )
