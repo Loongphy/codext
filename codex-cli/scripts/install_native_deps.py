@@ -25,11 +25,8 @@ VENDOR_DIR_NAME = "vendor"
 RG_MANIFEST = CODEX_CLI_ROOT / "bin" / "rg"
 BINARY_TARGETS = (
     "x86_64-unknown-linux-musl",
-    "aarch64-unknown-linux-musl",
-    "x86_64-apple-darwin",
     "aarch64-apple-darwin",
     "x86_64-pc-windows-msvc",
-    "aarch64-pc-windows-msvc",
 )
 
 
@@ -70,11 +67,8 @@ BINARY_COMPONENTS = {
 
 RG_TARGET_PLATFORM_PAIRS: list[tuple[str, str]] = [
     ("x86_64-unknown-linux-musl", "linux-x86_64"),
-    ("aarch64-unknown-linux-musl", "linux-aarch64"),
-    ("x86_64-apple-darwin", "macos-x86_64"),
     ("aarch64-apple-darwin", "macos-aarch64"),
     ("x86_64-pc-windows-msvc", "windows-x86_64"),
-    ("aarch64-pc-windows-msvc", "windows-aarch64"),
 ]
 RG_TARGET_TO_PLATFORM = {target: platform for target, platform in RG_TARGET_PLATFORM_PAIRS}
 DEFAULT_RG_TARGETS = [target for target, _ in RG_TARGET_PLATFORM_PAIRS]
@@ -165,22 +159,24 @@ def main() -> int:
         "rg",
     ]
 
-    workflow_url = (args.workflow_url or DEFAULT_WORKFLOW_URL).strip()
-    if not workflow_url:
-        workflow_url = DEFAULT_WORKFLOW_URL
+    binary_components = [BINARY_COMPONENTS[name] for name in components if name in BINARY_COMPONENTS]
+    if binary_components:
+        workflow_url = (args.workflow_url or DEFAULT_WORKFLOW_URL).strip()
+        if not workflow_url:
+            workflow_url = DEFAULT_WORKFLOW_URL
 
-    workflow_id = workflow_url.rstrip("/").split("/")[-1]
-    print(f"Downloading native artifacts from workflow {workflow_id}...")
+        workflow_id = workflow_url.rstrip("/").split("/")[-1]
+        print(f"Downloading native artifacts from workflow {workflow_id}...")
 
-    with _gha_group(f"Download native artifacts from workflow {workflow_id}"):
-        with tempfile.TemporaryDirectory(prefix="codex-native-artifacts-") as artifacts_dir_str:
-            artifacts_dir = Path(artifacts_dir_str)
-            _download_artifacts(workflow_id, artifacts_dir)
-            install_binary_components(
-                artifacts_dir,
-                vendor_dir,
-                [BINARY_COMPONENTS[name] for name in components if name in BINARY_COMPONENTS],
-            )
+        with _gha_group(f"Download native artifacts from workflow {workflow_id}"):
+            with tempfile.TemporaryDirectory(prefix="codex-native-artifacts-") as artifacts_dir_str:
+                artifacts_dir = Path(artifacts_dir_str)
+                _download_artifacts(workflow_id, artifacts_dir)
+                install_binary_components(
+                    artifacts_dir,
+                    vendor_dir,
+                    binary_components,
+                )
 
     if "rg" in components:
         with _gha_group("Fetch ripgrep binaries"):
@@ -454,8 +450,16 @@ def extract_archive(
 
 
 def _load_manifest(manifest_path: Path) -> dict:
-    cmd = ["dotslash", "--", "parse", str(manifest_path)]
-    stdout = subprocess.check_output(cmd, text=True)
+    dotslash = shutil.which("dotslash")
+    if dotslash is not None:
+        cmd = [dotslash, "--", "parse", str(manifest_path)]
+        stdout = subprocess.check_output(cmd, text=True)
+    else:
+        lines = manifest_path.read_text(encoding="utf-8").splitlines()
+        if lines and lines[0].startswith("#!"):
+            lines = lines[1:]
+        stdout = "\n".join(lines)
+
     try:
         manifest = json.loads(stdout)
     except json.JSONDecodeError as exc:

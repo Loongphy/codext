@@ -14,20 +14,6 @@ cd codex-rs
 cargo run --bin codex
 ```
 
-## Install From GitHub Release
-
-### Bash (Linux/macOS)
-
-```bash
-sh -c "$(curl -fsSL https://raw.githubusercontent.com/Loongphy/codext/main/scripts/install.sh)"
-```
-
-### PowerShell (Windows)
-
-```powershell
-irm https://raw.githubusercontent.com/Loongphy/codext/main/scripts/install.ps1 | iex
-```
-
 ## Project Goals
 
 We will never merge code from the upstream repo; instead, we re-implement our changes on top of the latest upstream code.
