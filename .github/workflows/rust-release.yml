@@ -43,7 +43,7 @@ jobs:
           - runner: ubuntu-24.04
             target: x86_64-unknown-linux-musl
             artifact_name: codex-bin-x86_64-unknown-linux-musl
-          - runner: macos-15-xlarge
+          - runner: macos-15
             target: aarch64-apple-darwin
             artifact_name: codex-bin-aarch64-apple-darwin
 
@@ -135,9 +135,7 @@ jobs:
   build-windows:
     needs: metadata
     name: Build - windows-x64 - x86_64-pc-windows-msvc
-    runs-on:
-      group: codex-runners
-      labels: codex-windows-x64
+    runs-on: windows-2025
     timeout-minutes: 60
     defaults:
       run:
