@@ -383,12 +383,22 @@ def copy_native_binaries(
             if dest_component_dir.exists():
                 shutil.rmtree(dest_component_dir)
             shutil.copytree(src_component_dir, dest_component_dir)
+            ensure_executable_files(dest_component_dir)
 
     if target_filter is not None:
         missing_targets = sorted(target_filter - copied_targets)
         if missing_targets:
             missing_list = ", ".join(missing_targets)
             raise RuntimeError(f"Missing target directories in vendor source: {missing_list}")
+
+
+def ensure_executable_files(root: Path) -> None:
+    for path in root.rglob("*"):
+        if not path.is_file():
+            continue
+
+        current_mode = path.stat().st_mode
+        path.chmod(current_mode | 0o111)
 
 
 def run_npm_pack(staging_dir: Path, output_path: Path) -> Path:
