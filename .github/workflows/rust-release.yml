@@ -175,6 +175,8 @@ jobs:
     permissions:
       id-token: write
       contents: read
+    env:
+      NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
     steps:
       - uses: actions/checkout@v6
@@ -188,6 +190,16 @@ jobs:
 
       - name: Update npm
         run: npm install -g npm@latest
+
+      - name: Verify npm auth configuration
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ -n "${NODE_AUTH_TOKEN:-}" ]]; then
+            echo "Using NPM_TOKEN secret for automated publish."
+          else
+            echo "NPM_TOKEN secret is not set; falling back to npm trusted publishing."
+          fi
 
       - name: Download Linux x64 artifact
         uses: actions/download-artifact@v8
