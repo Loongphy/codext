@@ -1,21 +1,35 @@
 ---
 name: codex-upstream-reapply
-description: "Tag-based upstream sync for a fork/secondary-development repo: fetch/filter rust-* tags, let the user choose a tag, create a fresh branch from that tag, then read the old customization branch’s git changes + intent Markdown to re-implement the requirements on the new branch (no merge/rebase of the old branch)."
+description: "Tag-based upstream sync for a fork/secondary-development repo: by default auto-pick the latest stable rust-vX.Y.Z tag and current branch, create a fresh branch from that tag, then read the old customization branch’s git changes + intent Markdown to re-implement the requirements on the new branch (no merge/rebase of the old branch)."
 ---
 
 # Codex Upstream Reapply
 
 ## Overview
 
-用于“二开/魔改”场景的 tag 同步：先按 `rust-*` 过滤拉取/查看 upstream tags，让用户选择一个 Rust tag 版本，从该 tag 创建新分支作为开发起点；然后读取旧二开分支的 git changes 与意图 Markdown，在新分支上“重实现”需求（不 merge/rebase 旧分支历史）。
+用于“二开/魔改”场景的 tag 同步：默认按 `rust-*` 过滤拉取/查看 upstream tags，自动选择最新的稳定正式版 Rust tag（只接受 `rust-vX.Y.Z`，忽略 `-alpha`/`-beta`/`-rc`），并使用当前分支作为 `OLD_BRANCH`；然后从该 tag 创建新分支作为开发起点，再读取旧二开分支的 git changes 与意图 Markdown，在新分支上“重实现”需求（不 merge/rebase 旧分支历史）。
 
 核心原则：`OLD_BRANCH` 的代码与提交历史只是参考材料，不是要直接照搬到 `NEW_BRANCH`。每次新的 upstream tag 都可能已经重构了相关模块，所以应当以 `CHANGED.md`、意图文档和旧分支行为为需求来源，基于当前 `TAG` 对应的代码结构重新实现。
+
+## Default Mode（用户没指定参数时）
+
+如果用户只是说类似 `$codex-upstream-reapply do it`，默认直接这样做，不再追问 tag / branch：
+
+1. `REMOTE=upstream`
+2. `TAG_PATTERN=rust-*`
+3. `TAG=最新稳定正式版 Rust tag`
+说明：只接受精确匹配 `rust-vX.Y.Z` 的 tag，例如 `rust-v0.117.0`；忽略 `rust-v0.117.0-alpha.1`
+4. `OLD_BRANCH=当前分支`
+说明：用 `git branch --show-current` 或等价命令获取
+5. `NEW_BRANCH=feat/<TAG>`
+6. 如果当前分支已经等于 `TAG` 或 `feat/<TAG>`，说明已经对齐到最新正式版，直接停止，不再继续重实现流程
+7. 如果不一致，再执行后续 reapply 逻辑
 
 ## Inputs (每次明确这些东西)
 
 - `REMOTE`：拉取 tags 的 remote（默认 `upstream`）
 - `TAG_PATTERN`：tag 过滤规则（默认 `rust-*`）
-- `TAG`：你选择的 tag 版本（作为新分支起点）
+- `TAG`：你选择的 tag 版本（作为新分支起点；默认取最新稳定正式版 `rust-vX.Y.Z`）
 - `OLD_BRANCH`：原本二开的分支（包含改动 + 意图 Markdown；默认取“当前分支”）
 - `NEW_BRANCH`：从 tag 新建的分支名（脚本默认 `feat/<tag-name>`）
 - 可选：`OLD_BASE_TAG`（仅当基线推断不可靠时显式指定）
@@ -45,11 +59,11 @@ git remote add upstream https://github.com/openai/codex.git
 - 建议把 `OLD_BRANCH` 推到你的 fork 远端（例如 `origin`），避免本地丢失。
 - 可选：打一个 snapshot tag/branch，方便以后回溯。
 
-### 2) Fetch tags & choose TAG
+### 2) Fetch tags & resolve TAG
 
 ```bash
 git fetch upstream 'refs/tags/rust-*:refs/tags/rust-*' --prune
-git for-each-ref --sort=-creatordate --format='%(creatordate:iso8601) %(refname:short)' 'refs/tags/rust-*'
+git for-each-ref --sort=-v:refname --format='%(refname:short)' 'refs/tags/rust-*'
 ```
 
 如只想先查看远端候选而不先写入本地 tags，也可以：
@@ -58,19 +72,36 @@ git for-each-ref --sort=-creatordate --format='%(creatordate:iso8601) %(refname:
 git ls-remote --tags --refs upstream 'rust-*'
 ```
 
-让用户从列表中选择一个 `TAG`（例如 `rust-v0.0.2505191518`）。
+默认取最新稳定正式版 `TAG`：
+
+```bash
+git for-each-ref --sort=-v:refname --format='%(refname:short)' 'refs/tags/rust-*' \
+  | grep -E '^rust-v[0-9]+\.[0-9]+\.[0-9]+$' \
+  | head -n 1
+```
+
+如果用户明确指定了 tag，再按用户指定值覆盖默认值。
 
 ### 3) Generate a re-implementation bundle & create NEW_BRANCH
 
 用脚本生成“重实现材料包”（默认输出到 `/tmp/codex-upstream-reapply/...`），并从 `TAG` 创建 `NEW_BRANCH`：
 
 ```bash
-# 建议在 OLD_BRANCH 上执行；省略 --old-branch 时默认使用当前分支作为 OLD_BRANCH
+# 默认模式：自动选择最新稳定 Rust tag + 当前分支作为 OLD_BRANCH
 bash .agents/skills/codex-upstream-reapply/scripts/start_from_tag.sh \
-  --remote upstream --tag TAG
+  --remote upstream
 ```
 
-脚本默认只 fetch/list `rust-*` tags；如确需放宽范围，再显式传 `--tag-pattern <glob>`。
+如需覆盖默认值，再显式传参：
+
+```bash
+bash .agents/skills/codex-upstream-reapply/scripts/start_from_tag.sh \
+  --remote upstream \
+  --tag TAG \
+  --old-branch OLD_BRANCH
+```
+
+脚本默认只 fetch `rust-*` tags，并自动选择最新稳定正式版；如确需放宽范围，再显式传 `--tag-pattern <glob>`。
 
 它会记录：
 

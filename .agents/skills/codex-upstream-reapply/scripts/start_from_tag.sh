@@ -5,8 +5,8 @@ print_usage() {
   cat <<'EOF'
 start_from_tag.sh
 
-Fetch tags, let the user choose a tag, generate a re-implementation bundle from OLD_BRANCH,
-then create NEW_BRANCH from the selected tag.
+Fetch tags, auto-select the latest stable Rust tag when --tag is omitted, generate a
+re-implementation bundle from OLD_BRANCH, then create NEW_BRANCH from the selected tag.
 
 Usage:
   start_from_tag.sh [options]
@@ -14,7 +14,7 @@ Usage:
 Options:
   --remote <remote>       Remote to fetch tags from (default: upstream)
   --tag-pattern <glob>    Only fetch/list tags matching this glob (default: rust-*)
-  --tag <tag>             Selected tag (required; if missing, list tags and exit)
+  --tag <tag>             Selected tag (optional; default: latest stable rust-vX.Y.Z)
   --old-branch <name>     Old customization branch (default: current branch)
   --new-branch <name>     New branch to create from tag (default: feat/<tag-name>)
   --old-base-tag <tag>    Explicit base tag for OLD_BRANCH (override base inference)
@@ -50,6 +50,24 @@ list_tags() {
   git for-each-ref --sort=-creatordate \
     --format='%(creatordate:iso8601) %(refname:short) %(objectname:short)' \
     "refs/tags/${TAG_PATTERN}"
+}
+
+is_stable_rust_tag() {
+  local tag_name="$1"
+  [[ "${tag_name}" =~ ^rust-v[0-9]+\.[0-9]+\.[0-9]+$ ]]
+}
+
+latest_stable_tag() {
+  local tag_name=""
+
+  while IFS= read -r tag_name; do
+    if is_stable_rust_tag "${tag_name}"; then
+      printf '%s\n' "${tag_name}"
+      return 0
+    fi
+  done < <(git for-each-ref --sort=-v:refname --format='%(refname:short)' "refs/tags/${TAG_PATTERN}")
+
+  return 1
 }
 
 tag_refspec() {
@@ -104,6 +122,7 @@ OUT_DIR=""
 COPY_ALL=0
 COPY_DOCS=1
 NO_FETCH=0
+AUTO_NEW_BRANCH=0
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -167,18 +186,6 @@ if [[ "${NO_FETCH}" != "1" ]]; then
   fi
 fi
 
-if [[ -z "${TAG}" ]]; then
-  echo "[INFO] Available tags matching ${TAG_PATTERN} (newest first):"
-  list_tags | head -n 50
-  echo
-  echo "Re-run with: --tag <tag> [--tag-pattern <glob>]"
-  exit 0
-fi
-
-tag_name="${TAG#refs/tags/}"
-tag_matches_pattern "${tag_name}" || die "Selected tag ${TAG} does not match --tag-pattern ${TAG_PATTERN}"
-git show-ref --verify --quiet "refs/tags/${tag_name}" || die "Tag not found: ${TAG}. If it exists upstream but was filtered out, retry with --tag-pattern <glob>."
-
 if [[ -z "${OLD_BRANCH}" ]]; then
   OLD_BRANCH="$(git rev-parse --abbrev-ref HEAD)"
 fi
@@ -186,8 +193,29 @@ fi
 [[ -n "${OLD_BRANCH}" ]] || die "--old-branch resolved to empty"
 [[ "${OLD_BRANCH}" != "HEAD" ]] || die "Detached HEAD; pass --old-branch <name>."
 
+if [[ -z "${TAG}" ]]; then
+  if ! TAG="$(latest_stable_tag)"; then
+    echo "[INFO] Available tags matching ${TAG_PATTERN} (newest first):"
+    list_tags | head -n 50
+    die "No stable Rust release tag found under ${TAG_PATTERN}. Pass --tag explicitly."
+  fi
+  echo "[INFO] Auto-selected latest stable Rust tag: ${TAG}"
+fi
+
+tag_name="${TAG#refs/tags/}"
+tag_matches_pattern "${tag_name}" || die "Selected tag ${TAG} does not match --tag-pattern ${TAG_PATTERN}"
+git show-ref --verify --quiet "refs/tags/${tag_name}" || die "Tag not found: ${TAG}. If it exists upstream but was filtered out, retry with --tag-pattern <glob>."
+
 if [[ -z "${NEW_BRANCH}" ]]; then
   NEW_BRANCH="feat/${tag_name}"
+  AUTO_NEW_BRANCH=1
+fi
+
+if [[ "${AUTO_NEW_BRANCH}" == "1" ]]; then
+  if [[ "${OLD_BRANCH}" == "${tag_name}" || "${OLD_BRANCH}" == "${NEW_BRANCH}" ]]; then
+    echo "[OK] Current branch ${OLD_BRANCH} already matches the latest stable tag ${tag_name}; nothing to do."
+    exit 0
+  fi
 fi
 
 if [[ "${NEW_BRANCH}" == "${OLD_BRANCH}" ]]; then
