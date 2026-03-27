@@ -50,6 +50,8 @@ use crate::bottom_pane::StatusLinePreviewData;
 use crate::bottom_pane::StatusLineSetupView;
 use crate::bottom_pane::TerminalTitleItem;
 use crate::bottom_pane::TerminalTitleSetupView;
+use crate::git_status::GitStatusSummary;
+use crate::git_status::collect_git_status_summary;
 use crate::mention_codec::LinkedMention;
 use crate::mention_codec::encode_history_mentions;
 use crate::model_catalog::ModelCatalog;
@@ -229,6 +231,7 @@ use ratatui::style::Stylize;
 use ratatui::text::Line;
 use ratatui::widgets::Paragraph;
 use ratatui::widgets::Wrap;
+use tokio::task::JoinHandle;
 use tokio::sync::mpsc::UnboundedSender;
 use tracing::debug;
 use tracing::warn;
@@ -355,6 +358,7 @@ use self::plugins::PluginsCacheState;
 mod realtime;
 use self::realtime::RealtimeConversationUiState;
 use self::realtime::RenderedUserMessageEvent;
+mod status_header;
 mod status_surfaces;
 use self::status_surfaces::CachedProjectRootName;
 use self::status_surfaces::TerminalTitleStatusKind;
@@ -763,6 +767,8 @@ pub(crate) struct ChatWidget {
     plan_type: Option<PlanType>,
     rate_limit_warnings: RateLimitWarningState,
     rate_limit_switch_prompt: RateLimitSwitchPromptState,
+    git_status: Option<GitStatusSummary>,
+    git_status_poller: Option<JoinHandle<()>>,
     adaptive_chunking: AdaptiveChunkingPolicy,
     // Stream lifecycle controller
     stream_controller: Option<StreamController>,
@@ -1895,6 +1901,7 @@ impl ChatWidget {
                 tracing::warn!(path = %event.cwd.display(), %err, "session cwd should be absolute");
             }
         }
+        self.start_git_status_poller();
         if let Err(err) = self
             .config
             .permissions
@@ -2648,6 +2655,15 @@ impl ChatWidget {
             self.rate_limit_snapshots_by_limit_id.clear();
         }
         self.refresh_status_line();
+        self.request_redraw();
+    }
+
+    pub(crate) fn on_git_status_update(&mut self, summary: Option<GitStatusSummary>) {
+        if self.git_status == summary {
+            return;
+        }
+        self.git_status = summary;
+        self.request_redraw();
     }
     /// Finalize any active exec as failed and stop/clear agent-turn UI state.
     ///
@@ -4477,6 +4493,8 @@ impl ChatWidget {
             plan_type: initial_plan_type,
             rate_limit_warnings: RateLimitWarningState::default(),
             rate_limit_switch_prompt: RateLimitSwitchPromptState::default(),
+            git_status: None,
+            git_status_poller: None,
             adaptive_chunking: AdaptiveChunkingPolicy::default(),
             stream_controller: None,
             plan_stream_controller: None,
@@ -4592,12 +4610,28 @@ impl ChatWidget {
             .bottom_pane
             .set_connectors_enabled(widget.connectors_enabled());
         widget.refresh_status_surfaces();
+        widget.start_git_status_poller();
 
         widget
     }
 
     pub(crate) fn handle_key_event(&mut self, key_event: KeyEvent) {
         match key_event {
+            KeyEvent {
+                code: KeyCode::Char(c),
+                modifiers,
+                kind: KeyEventKind::Press,
+                ..
+            } if modifiers.contains(KeyModifiers::CONTROL)
+                && modifiers.contains(KeyModifiers::SHIFT)
+                && c.eq_ignore_ascii_case(&'c') =>
+            {
+                if self.on_ctrl_shift_c() {
+                    return;
+                }
+                self.on_ctrl_c();
+                return;
+            }
             KeyEvent {
                 code: KeyCode::Char(c),
                 modifiers,
@@ -5061,7 +5095,7 @@ impl ChatWidget {
                 });
             }
             SlashCommand::Copy => {
-                let Some(text) = self.last_copyable_output.as_deref() else {
+                let Some(text) = self.last_copyable_output.clone() else {
                     self.add_info_message(
                         "`/copy` is unavailable before the first Codex output or right after a rollback."
                             .to_string(),
@@ -5070,23 +5104,15 @@ impl ChatWidget {
                     return;
                 };
 
-                let copy_result = clipboard_text::copy_text_to_clipboard(text);
-
-                match copy_result {
-                    Ok(()) => {
-                        let hint = self.agent_turn_running.then_some(
-                            "Current turn is still running; copied the latest completed output (not the in-progress response)."
-                                .to_string(),
-                        );
-                        self.add_info_message(
-                            "Copied latest Codex output to clipboard.".to_string(),
-                            hint,
-                        );
-                    }
-                    Err(err) => {
-                        self.add_error_message(format!("Failed to copy to clipboard: {err}"))
-                    }
-                }
+                let hint = self.agent_turn_running.then_some(
+                    "Current turn is still running; copied the latest completed output (not the in-progress response)."
+                        .to_string(),
+                );
+                self.copy_text_to_clipboard(
+                    &text,
+                    "Copied latest Codex output to clipboard.".to_string(),
+                    hint,
+                );
             }
             SlashCommand::Mention => {
                 self.insert_str("@");
@@ -7275,6 +7301,12 @@ impl ChatWidget {
 
     fn stop_rate_limit_poller(&mut self) {}
 
+    fn stop_git_status_poller(&mut self) {
+        if let Some(handle) = self.git_status_poller.take() {
+            handle.abort();
+        }
+    }
+
     pub(crate) fn refresh_connectors(&mut self, force_refetch: bool) {
         self.prefetch_connectors_with_options(force_refetch);
     }
@@ -7358,6 +7390,25 @@ impl ChatWidget {
     #[cfg_attr(not(test), allow(dead_code))]
     fn prefetch_rate_limits(&mut self) {
         self.stop_rate_limit_poller();
+    }
+
+    fn start_git_status_poller(&mut self) {
+        self.stop_git_status_poller();
+
+        let cwd = self.config.cwd.clone();
+        let app_event_tx = self.app_event_tx.clone();
+
+        let handle = tokio::spawn(async move {
+            let mut interval = tokio::time::interval(Duration::from_secs(5));
+
+            loop {
+                interval.tick().await;
+                let summary = collect_git_status_summary(cwd.as_path()).await;
+                app_event_tx.send(AppEvent::GitStatusFetched(summary));
+            }
+        });
+
+        self.git_status_poller = Some(handle);
     }
 
     #[cfg_attr(not(test), allow(dead_code))]
@@ -9692,7 +9743,7 @@ impl ChatWidget {
 
     fn rename_confirmation_cell(name: &str, thread_id: Option<ThreadId>) -> PlainHistoryCell {
         let resume_cmd = codex_core::util::resume_command(Some(name), thread_id)
-            .unwrap_or_else(|| format!("codex resume {name}"));
+            .unwrap_or_else(|| format!("codext resume {name}"));
         let name = name.to_string();
         let line = vec![
             "• ".into(),
@@ -10023,6 +10074,29 @@ impl ChatWidget {
         }
     }
 
+    /// Handles a Ctrl+Shift+C press at the chat-widget layer.
+    ///
+    /// This is a composer-only shortcut: when the main draft contains visible text and no modal
+    /// surface is active, copy that draft to the system clipboard. If there is nothing copyable,
+    /// fall back so the existing Ctrl+C behavior still applies.
+    fn on_ctrl_shift_c(&mut self) -> bool {
+        if self.realtime_conversation.is_live() || !self.bottom_pane.no_modal_or_popup_active() {
+            return false;
+        }
+
+        let text = self.bottom_pane.composer_text_with_pending();
+        if text.is_empty() {
+            return false;
+        }
+
+        self.copy_text_to_clipboard(
+            &text,
+            "Copied composer draft to clipboard.".to_string(),
+            /*hint*/ None,
+        );
+        true
+    }
+
     /// Handles a Ctrl+D press at the chat-widget layer.
     ///
     /// Ctrl-D only participates in quit when the composer is empty and no modal/popup is active.
@@ -10052,6 +10126,18 @@ impl ChatWidget {
 
         self.arm_quit_shortcut(key);
         true
+    }
+
+    fn copy_text_to_clipboard(
+        &mut self,
+        text: &str,
+        success_message: String,
+        hint: Option<String>,
+    ) {
+        match clipboard_text::copy_text_to_clipboard(text) {
+            Ok(()) => self.add_info_message(success_message, hint),
+            Err(err) => self.add_error_message(format!("Failed to copy to clipboard: {err}")),
+        }
     }
 
     /// True if `key` matches the armed quit shortcut and the window has not expired.
@@ -10566,21 +10652,11 @@ impl ChatWidget {
     }
 
     fn as_renderable(&self) -> RenderableItem<'_> {
-        let active_cell_renderable = match &self.active_cell {
-            Some(cell) => RenderableItem::Borrowed(cell).inset(Insets::tlbr(
-                /*top*/ 1, /*left*/ 0, /*bottom*/ 0, /*right*/ 0,
-            )),
-            None => RenderableItem::Owned(Box::new(())),
-        };
-        let mut flex = FlexRenderable::new();
-        flex.push(/*flex*/ 1, active_cell_renderable);
-        flex.push(
-            /*flex*/ 0,
-            RenderableItem::Borrowed(&self.bottom_pane).inset(Insets::tlbr(
-                /*top*/ 1, /*left*/ 0, /*bottom*/ 0, /*right*/ 0,
-            )),
-        );
-        RenderableItem::Owned(Box::new(flex))
+        status_header::as_renderable(self)
+    }
+
+    fn measure_renderable(&self) -> RenderableItem<'_> {
+        status_header::measure_renderable(self)
     }
 }
 
@@ -10620,6 +10696,7 @@ impl Drop for ChatWidget {
     fn drop(&mut self) {
         self.reset_realtime_conversation_state();
         self.stop_rate_limit_poller();
+        self.stop_git_status_poller();
     }
 }
 
@@ -10630,7 +10707,7 @@ impl Renderable for ChatWidget {
     }
 
     fn desired_height(&self, width: u16) -> u16 {
-        self.as_renderable().desired_height(width)
+        self.measure_renderable().desired_height(width)
     }
 
     fn cursor_pos(&self, area: Rect) -> Option<(u16, u16)> {

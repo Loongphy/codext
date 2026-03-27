@@ -4010,6 +4010,9 @@ impl App {
             AppEvent::RateLimitSnapshotFetched(snapshot) => {
                 self.chat_widget.on_rate_limit_snapshot(Some(snapshot));
             }
+            AppEvent::GitStatusFetched(summary) => {
+                self.chat_widget.on_git_status_update(summary);
+            }
             AppEvent::ConnectorsLoaded { result, is_final } => {
                 self.chat_widget.on_connectors_loaded(result, is_final);
             }

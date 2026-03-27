@@ -10,12 +10,13 @@ This file captures the full set of changes currently in the working tree.
 - On WSL2, composer draft copy reuses the existing Windows clipboard fallback so copies still land in the Windows system clipboard.
 - `Ctrl+Shift+C` now takes its own composer-copy path instead of falling through to the existing `Ctrl+C` clear/interrupt/quit behavior when draft text is present.
 - Added footer shortcut help text for the new draft-copy binding.
+- This user-visible shortcut behavior must stay aligned across both the classic `tui` and `tui_app_server` implementations.
 
 ## TUI status header and polling
 
-- Added a status header above the composer that surfaces model + reasoning effort, current directory, git branch/ahead/behind/changes, and rate-limit remaining/reset time.
-- Git status is collected in the background (5s interval, 2s timeout) and rendered when available.
-- Rate-limit polling is now more frequent (15s) so the header stays fresh.
+- Added a status header above the composer in both the classic `tui` and `tui_app_server` implementations. It surfaces model + reasoning effort, current directory, git branch/ahead/behind/changes, and rate-limit remaining/reset time.
+- Git status is collected in the background (5s interval, 2s timeout) and rendered when available in both TUI implementations.
+- The status header must stay fresh in both TUI implementations. In the classic `tui`, rate-limit polling is now more frequent (15s); `tui_app_server` must surface equivalent up-to-date rate-limit data through its app-server event path.
 
 ## TUI auth.json watcher
 

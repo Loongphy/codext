@@ -69,6 +69,7 @@ mod app_server_tui_dispatch;
 mod ascii_animation;
 #[cfg(all(not(target_os = "linux"), feature = "voice-input"))]
 mod audio_device;
+mod auth_watch;
 #[cfg(all(not(target_os = "linux"), not(feature = "voice-input")))]
 mod audio_device {
     use crate::app_event::RealtimeAudioDeviceKind;
@@ -99,6 +100,7 @@ mod external_editor;
 mod file_search;
 mod frames;
 mod get_git_diff;
+mod git_status;
 mod history_cell;
 pub mod insert_history;
 mod key_hint;

@@ -2,6 +2,7 @@ use crate::auth::AuthCredentialsStoreMode;
 use crate::config::edit::ConfigEdit;
 use crate::config::edit::ConfigEditsBuilder;
 use crate::config::types::AppsConfigToml;
+use crate::config::types::CollaborationModeOverrides;
 use crate::config::types::DEFAULT_OTEL_ENVIRONMENT;
 use crate::config::types::History;
 use crate::config::types::McpServerConfig;
@@ -737,6 +738,14 @@ impl Config {
         )
     }
 
+    pub fn collaboration_mode_overrides(&self) -> Option<CollaborationModeOverrides> {
+        self.config_layer_stack
+            .effective_config()
+            .try_into()
+            .ok()
+            .and_then(|cfg: ConfigToml| cfg.collaboration_modes)
+    }
+
     /// This is a secondary way of creating [Config], which is appropriate when
     /// the harness is meant to be used with a specific configuration that
     /// ignores user settings. For example, the `codex exec` subcommand is
@@ -1272,6 +1281,9 @@ pub struct ConfigToml {
     /// When set to `true`, `AgentReasoningRawContentEvent` events will be shown in the UI/output.
     /// Defaults to `false`.
     pub show_raw_agent_reasoning: Option<bool>,
+
+    /// Optional overrides for collaboration mode presets.
+    pub collaboration_modes: Option<CollaborationModeOverrides>,
 
     pub model_reasoning_effort: Option<ReasoningEffort>,
     pub plan_mode_reasoning_effort: Option<ReasoningEffort>,

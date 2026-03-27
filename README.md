@@ -2,7 +2,7 @@
 
 An opinionated Codex CLI. This is strictly a personal hobby project, forked from openai/codex.
 
-![Codex build](https://img.shields.io/static/v1?label=codex%20build&message=rust-v0.116.0-38771c9&color=2ea043)
+![Codex build](https://img.shields.io/static/v1?label=codex%20build&message=rust-v0.117.0-f82d18d&color=2ea043)
 
 ![TUI](
 https://github.com/user-attachments/assets/127abbc2-cb30-4d6e-8a81-ce707260c045)

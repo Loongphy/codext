@@ -179,6 +179,20 @@ Ctrl+C clears the composer but stashes the full draft state (text elements, loca
 remote image URLs, and pending paste payloads) into local history. Pressing Up immediately restores
 that draft, including image placeholders and large-paste placeholders with their payloads.
 
+### Draft copy (`Ctrl+Shift+C`)
+
+`Ctrl+Shift+C` does not replace `Ctrl+C`; the existing `Ctrl+C` clear/interrupt/quit behavior stays
+the same. Instead, when the composer has copyable text and no modal/popup is active,
+`Ctrl+Shift+C` copies the current draft text to the system clipboard and leaves the draft in place.
+
+Copy uses the composer’s expanded text view, so pending large-paste placeholders copy their full
+payload text rather than the placeholder label. Attachment-only state is not serialized into the
+clipboard payload. When the composer has no copyable text, `Ctrl+Shift+C` falls back to the normal
+`Ctrl+C` path.
+
+On WSL2, this reuses the same Windows clipboard fallback as `/copy`, so copied drafts still land
+in the Windows system clipboard.
+
 ### Submitted message recall
 
 After a successful submission, the local history entry stores the submitted text, element ranges,

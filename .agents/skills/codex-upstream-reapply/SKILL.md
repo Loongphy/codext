@@ -40,6 +40,12 @@ description: "Tag-based upstream sync for a fork/secondary-development repo: by 
 
 - 禁止运行 `cargo test`（不需要写/跑测试）。
 - 不得生成测试代码或快照文件：确保本次变更里没有新增/修改测试代码或 `*.snap`/`*.snap.new`。
+- 禁止运行任何会检查/编译测试目标，或可能因此倒逼你修改测试代码的命令；包括但不限于 `cargo clippy --tests`、`cargo clippy --fix --tests`、`just fix`、`cargo insta ...`。
+- 除非用户明确要求，不运行 `cargo fmt` / `just fmt` / `cargo clippy` / `cargo clippy --fix` / `just fix` 这类格式化、lint、自动修正命令；本 skill 默认只做必要的代码实现与 build 验证。
+- 如果仓库通用 AGENTS/README/开发规范要求在大改后额外跑 `fmt` / `clippy` / `fix` / `test`，在本 skill 下默认跳过这些步骤，优先遵守“不改测试代码、只做 build 验证”的约束；如有例外必须先得到用户明确许可。
+- 在 `NEW_BRANCH` 上保留并更新根目录 `AGENTS.md`：明确说明当前正在进行的是一次 upstream reapply 工作，禁止编写/修改测试代码，禁止执行任何 lint / format / auto-fix 命令，并注明本次验收标准以本 skill 的 Acceptance criteria 为准。
+- 对于用户可见的 TUI 功能，如果 `codex-rs/tui` 与 `codex-rs/tui_app_server` 都存在对应的平行实现，则必须同步落地两边；不能只改其中一边就判定该需求已完成，除非 upstream 已明确删除其一，或你能在当前 tag 的代码里给出清晰的“不需要同步”的理由。
+- 如果 `CHANGED.md` 记录的是这类共享 TUI 行为，文案应写成“用户可见行为要求”，并在需要时明确适用于 `tui` 与 `tui_app_server`，避免写成只对应某一个实现细节的说明。
 - 在 `codex-rs` 目录下执行 `cargo build -p codex-cli`，确认能正常启动运行。
 - 更新根目录 `README.md` 的 `Codex build` 徽章版本：使用选定 `TAG` 的版本号，并附加该 tag 指向的短 commit（例如 `rust-v0.94.0-dce99bc`）。推荐使用 `https://img.shields.io/static/v1?label=codex%20build&message=<tag>-<short_commit>&color=2ea043`。
 
@@ -111,6 +117,15 @@ bash .agents/skills/codex-upstream-reapply/scripts/start_from_tag.sh \
 -（可选）用 `--copy-all` 复制所有变更文件的旧版内容（用于离线阅读）
 并且会把 `OLD_BRANCH` 的 `README.md`、`CHANGED.md` 与 `.agents/skills/` 原样复制到 `NEW_BRANCH`（不改内容；如有差异会自动提交一次）。
 
+如果这一步复制了 `README.md` 到 `NEW_BRANCH`，则紧接着必须更新 `NEW_BRANCH` 根目录 `AGENTS.md`，补充一段当前任务说明，至少包含这些信息：
+
+- 当前正在进行 `TAG` 对应的 upstream reapply / re-implementation 工作。
+- 本次只允许修改实现代码与必要文档，不写、不改任何测试代码或 snapshot。
+- 本次不执行任何 lint / format / auto-fix 命令（例如 `cargo fmt`、`just fmt`、`cargo clippy`、`just fix`）。
+- 本次是否完成，以本 skill 的 “Acceptance criteria” 为唯一验收标准。
+
+推荐把这段说明写成显式的临时工作约束，方便后续同线程/同分支继续协作时不偏离边界。
+
 如果基线推断可疑（脚本会提示），请显式指定旧分支基线 tag：
 
 ```bash
@@ -127,6 +142,7 @@ bash .agents/skills/codex-upstream-reapply/scripts/start_from_tag.sh \
 
 - `OLD_BRANCH` 的实现、diff、提交记录只用于帮助理解需求，不应直接 `cherry-pick`、照搬旧提交历史，或把旧分支当成目标代码树覆盖到新分支上。
 - `CHANGED.md` 应视为需求清单的第一参考来源；旧分支代码只是帮助你理解这些需求当时是如何落地的。
+- 对 TUI 相关需求，不要默认只看 `codex-rs/tui`。先确认当前 tag 下 `codex-rs/tui` 与 `codex-rs/tui_app_server` 是否都存在对应 surface，以及 `codex` 默认 interactive 入口实际会分发到哪一条链路，再决定需要同步重实现的范围。
 - 若 upstream 在新 `TAG` 中已经重构相关模块，应优先适配当前 codebase 的结构，在当前实现方式下重新落地相同需求，而不是强行维持旧文件组织或旧接口。
 - 最终目标是“在当前 codebase 上实现同样的需求”，不是“让新分支长得像旧分支的提交历史”。
 
@@ -152,21 +168,9 @@ git diff BASE_COMMIT..OLD_BRANCH -- path/to/file
 
 ### 5.1) Status header 规范（改动 TUI 状态栏时）
 
-- Nerd Font 图标（固定）：
-  - model: `\u{ee9c}`
-  - directory: `\u{f07c}`
-  - git: `\u{f418}`
-  - rate limit: `\u{f464}`
-- 配色（固定）：
-  - model（icon + label）：`cyan`
-  - directory（icon + path）：`yellow`
-  - git icon + branch：`blue`
-  - git ahead：`green`
-  - git behind：`red`
-  - git changed：`yellow`
-  - git untracked：`red`
-  - rate limit（icon + summary）：`cyan`
-  - segment separator `" │ "`：`dim`
+- 状态栏是共享 TUI surface：如果 `codex-rs/tui` 与 `codex-rs/tui_app_server` 都渲染了这一层，默认两边都要同步修改，不能只改经典 `tui`。
+- 具体图标、颜色、segment 顺序、rate-limit summary 格式与刷新语义，统一遵循 `status-header` skill；这里不要再维护第二份会漂移的细节规范。
+- 如果当前仓库的 TUI 样式规范、lint 或现有封装与状态栏 skill 的示例写法冲突，优先遵循仓库本身的规则，但要保持相同的用户可见效果；不要为了强行对齐示例而引入 `clippy` 警告/报错，或去修改测试代码。
 
 ### 6) Build (codex-rs)
 
