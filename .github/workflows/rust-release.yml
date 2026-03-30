@@ -14,7 +14,7 @@ jobs:
   build-unix:
     name: Build - ${{ matrix.runner }} - ${{ matrix.target }}
     runs-on: ${{ matrix.runner }}
-    timeout-minutes: 120
+    timeout-minutes: 240
     permissions:
       contents: read
     defaults:
