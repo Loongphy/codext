@@ -215,6 +215,114 @@ jobs:
             codex-rs/target/${{ matrix.target }}/release/codex-command-runner.exe
           if-no-files-found: error
 
+  publish-release:
+    needs:
+      - build-unix
+      - build-windows
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Compute release version
+        id: compute
+        shell: bash
+        run: |
+          set -euo pipefail
+          base_version="$(grep -m1 '^version' codex-rs/Cargo.toml | sed -E 's/version *= *"([^"]+)".*/\1/')"
+          short_sha="${GITHUB_SHA::7}"
+          echo "base_version=${base_version}" >> "$GITHUB_OUTPUT"
+          echo "release_version=${base_version}-${short_sha}" >> "$GITHUB_OUTPUT"
+          echo "release_tag=codext-v${base_version}-${short_sha}" >> "$GITHUB_OUTPUT"
+
+      - name: Generate release notes
+        id: release_notes
+        env:
+          BASE_VERSION: ${{ steps.compute.outputs.base_version }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          notes_path="${RUNNER_TEMP}/release-notes.md"
+          upstream_tag="rust-v${BASE_VERSION}"
+          upstream_label="codex-v${BASE_VERSION}"
+          upstream_url="https://github.com/openai/codex/releases/tag/${upstream_tag}"
+          {
+            printf 'For upstream changes, see [%s](%s).\n\n' "${upstream_label}" "${upstream_url}"
+            git log -1 --format=%B "${GITHUB_SHA}"
+            echo
+          } > "${notes_path}"
+          echo "path=${notes_path}" >> "$GITHUB_OUTPUT"
+
+      - name: Download build artifacts
+        uses: actions/download-artifact@v8
+        with:
+          pattern: codex-bin-*
+          path: ${{ runner.temp }}/artifacts
+
+      - name: Stage release assets
+        env:
+          VERSION: ${{ steps.compute.outputs.release_version }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          artifacts_root="${RUNNER_TEMP}/artifacts"
+          out_dir="${GITHUB_WORKSPACE}/dist/release"
+          mkdir -p "${out_dir}"
+
+          linux_stage="$(mktemp -d "${RUNNER_TEMP}/release-linux-x64-XXXXXX")"
+          cp "${artifacts_root}/codex-bin-x86_64-unknown-linux-musl/codex" "${linux_stage}/codext"
+          chmod +x "${linux_stage}/codext"
+          tar -C "${linux_stage}" -czf "${out_dir}/codext-linux-x64-${VERSION}.tar.gz" codext
+
+          darwin_x64_stage="$(mktemp -d "${RUNNER_TEMP}/release-darwin-x64-XXXXXX")"
+          cp "${artifacts_root}/codex-bin-x86_64-apple-darwin/codex" "${darwin_x64_stage}/codext"
+          chmod +x "${darwin_x64_stage}/codext"
+          tar -C "${darwin_x64_stage}" -czf "${out_dir}/codext-darwin-x64-${VERSION}.tar.gz" codext
+
+          darwin_arm64_stage="$(mktemp -d "${RUNNER_TEMP}/release-darwin-arm64-XXXXXX")"
+          cp "${artifacts_root}/codex-bin-aarch64-apple-darwin/codex" "${darwin_arm64_stage}/codext"
+          chmod +x "${darwin_arm64_stage}/codext"
+          tar -C "${darwin_arm64_stage}" -czf "${out_dir}/codext-darwin-arm64-${VERSION}.tar.gz" codext
+
+          windows_stage="$(mktemp -d "${RUNNER_TEMP}/release-win32-x64-XXXXXX")"
+          cp "${artifacts_root}/codex-bin-x86_64-pc-windows-msvc/codex.exe" "${windows_stage}/codext.exe"
+          cp "${artifacts_root}/codex-bin-x86_64-pc-windows-msvc/codex-windows-sandbox-setup.exe" "${windows_stage}/codex-windows-sandbox-setup.exe"
+          cp "${artifacts_root}/codex-bin-x86_64-pc-windows-msvc/codex-command-runner.exe" "${windows_stage}/codex-command-runner.exe"
+          (
+            cd "${windows_stage}"
+            zip -q -r "${out_dir}/codext-win32-x64-${VERSION}.zip" .
+          )
+
+      - name: Create or update GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_NAME: ${{ steps.compute.outputs.release_version }}
+          RELEASE_TAG: ${{ steps.compute.outputs.release_tag }}
+          RELEASE_NOTES: ${{ steps.release_notes.outputs.path }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if gh release view "${RELEASE_TAG}" --repo "${GITHUB_REPOSITORY}" >/dev/null 2>&1; then
+            gh release edit "${RELEASE_TAG}" \
+              --repo "${GITHUB_REPOSITORY}" \
+              --title "codext ${RELEASE_NAME}" \
+              --notes-file "${RELEASE_NOTES}" \
+              --latest
+          else
+            gh release create "${RELEASE_TAG}" \
+              --repo "${GITHUB_REPOSITORY}" \
+              --title "codext ${RELEASE_NAME}" \
+              --notes-file "${RELEASE_NOTES}" \
+              --target "${GITHUB_SHA}" \
+              --latest
+          fi
+
+          gh release upload "${RELEASE_TAG}" dist/release/* \
+            --repo "${GITHUB_REPOSITORY}" \
+            --clobber
+
   publish-npm:
     needs:
       - build-unix

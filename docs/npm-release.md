@@ -1,20 +1,21 @@
 # NPM release requirements
 
-This document records the NPM release requirements confirmed in the recent conversation.
+This document records the codext release requirements confirmed in the recent conversation.
 
 ## Goal
 
-The repository should keep a single GitHub Actions workflow dedicated to NPM publishing.
+The repository should keep a single GitHub Actions workflow dedicated to codext release publishing.
 
 ## Workflow requirements
 
-- Keep only one release workflow for NPM publishing.
+- Keep only one release workflow for codext publishing.
 - The workflow should trigger on every push to `main`.
 - Manual triggering via `workflow_dispatch` is acceptable.
 - The workflow does not need to run tests.
 - The workflow does not need to run unrelated CI checks.
-- The workflow only needs to build successfully and publish the NPM package.
+- The workflow only needs to build successfully and publish the NPM package plus GitHub Release assets.
 - The workflow should keep publishing the newest package under the `latest` dist-tag.
+- The workflow should also create or update a GitHub Release on every push to `main`.
 
 ## Package identity
 
@@ -43,6 +44,21 @@ codext
   - `darwin-x64`
   - `darwin-arm64`
   - `win32-x64`
+
+## GitHub Release assets
+
+- Each push to `main` should create or update a GitHub Release for the current build.
+- Each new GitHub Release should be marked as the repository `latest` release.
+- The GitHub release tag should be derived from the computed release version for that commit.
+- The release notes should begin with an upstream changelog link rendered as
+  `codex-v<base_version>`, pointing to
+  `https://github.com/openai/codex/releases/tag/rust-v<base_version>`.
+- GitHub release assets should only contain codext CLI binaries for the supported platforms.
+- The released archive set should match the supported platforms:
+  - `codext-linux-x64-<version>.tar.gz`
+  - `codext-darwin-x64-<version>.tar.gz`
+  - `codext-darwin-arm64-<version>.tar.gz`
+  - `codext-win32-x64-<version>.zip`
 
 ## Versioning requirements
 
