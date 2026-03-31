@@ -92,6 +92,7 @@ copy_file_from_old_branch() {
   local path="$2"
 
   if git cat-file -e "${old_branch}:${path}" 2>/dev/null; then
+    mkdir -p "$(dirname "${path}")"
     git show "${old_branch}:${path}" > "${path}"
     git add "${path}"
     echo "[INFO] Copied ${path} from ${old_branch}"
@@ -111,6 +112,155 @@ copy_path_from_old_branch() {
     echo "[WARN] ${path} not found in ${old_branch}; skipping."
   fi
 }
+
+copy_entry_from_old_branch() {
+  local old_branch="$1"
+  local path="$2"
+  local object_type=""
+
+  if ! object_type="$(git cat-file -t "${old_branch}:${path}" 2>/dev/null)"; then
+    echo "[WARN] ${path} not found in ${old_branch}; skipping."
+    return 0
+  fi
+
+  case "${object_type}" in
+    blob)
+      copy_file_from_old_branch "${old_branch}" "${path}"
+      ;;
+    tree)
+      copy_path_from_old_branch "${old_branch}" "${path}"
+      ;;
+    *)
+      echo "[WARN] Unsupported git object type for ${path}: ${object_type}; skipping."
+      ;;
+  esac
+}
+
+path_exists_in_ref() {
+  local ref="$1"
+  local path="$2"
+  git cat-file -e "${ref}:${path}" 2>/dev/null
+}
+
+matches_release_carry_over_path() {
+  local path="$1"
+
+  case "${path}" in
+    ci|ci/*)
+      return 0
+      ;;
+    .github/workflows|.github/workflows/*)
+      return 0
+      ;;
+    .github/actions|.github/actions/*)
+      return 0
+      ;;
+    .github/scripts|.github/scripts/*)
+      return 0
+      ;;
+    codex-cli/package.json)
+      return 0
+      ;;
+    codex-cli/bin|codex-cli/bin/*)
+      return 0
+      ;;
+    codex-cli/scripts|codex-cli/scripts/*)
+      return 0
+      ;;
+    docs/npm-release.md)
+      return 0
+      ;;
+    *)
+      return 1
+      ;;
+  esac
+}
+
+remove_path_from_new_branch() {
+  local path="$1"
+
+  if git ls-files --error-unmatch -- "${path}" >/dev/null 2>&1; then
+    git rm -r -f -- "${path}" >/dev/null
+    echo "[INFO] Removed ${path} to match OLD_BRANCH deletion"
+  elif [[ -e "${path}" || -L "${path}" ]]; then
+    rm -rf -- "${path}"
+    echo "[INFO] Removed untracked ${path} to match OLD_BRANCH deletion"
+  else
+    echo "[INFO] ${path} already absent; deletion already matches OLD_BRANCH"
+  fi
+}
+
+apply_release_carry_over_changes() {
+  local base_commit="$1"
+  local old_branch="$2"
+  local status=""
+  local path=""
+  local old_path=""
+  local new_path=""
+  local matched=0
+
+  while IFS= read -r -d '' status; do
+    case "${status}" in
+      R*|C*)
+        IFS= read -r -d '' old_path || die "Malformed diff stream for ${status}"
+        IFS= read -r -d '' new_path || die "Malformed diff stream for ${status}"
+
+        if ! matches_release_carry_over_path "${old_path}" && ! matches_release_carry_over_path "${new_path}"; then
+          continue
+        fi
+
+        matched=1
+        if [[ "${status}" == R* && "${old_path}" != "${new_path}" ]]; then
+          remove_path_from_new_branch "${old_path}"
+        fi
+
+        if path_exists_in_ref "${old_branch}" "${new_path}"; then
+          copy_entry_from_old_branch "${old_branch}" "${new_path}"
+        else
+          remove_path_from_new_branch "${new_path}"
+        fi
+        ;;
+      *)
+        IFS= read -r -d '' path || die "Malformed diff stream for ${status}"
+
+        if ! matches_release_carry_over_path "${path}"; then
+          continue
+        fi
+
+        matched=1
+        if path_exists_in_ref "${old_branch}" "${path}"; then
+          copy_entry_from_old_branch "${old_branch}" "${path}"
+        else
+          remove_path_from_new_branch "${path}"
+        fi
+        ;;
+    esac
+  done < <(git diff --name-status -z --find-renames "${base_commit}..${old_branch}")
+
+  if [[ "${matched}" == "0" ]]; then
+    echo "[INFO] No npm/release/CI carry-over changes detected from ${old_branch}"
+  fi
+}
+
+carry_over_commit_message() {
+  local old_branch="$1"
+  printf 'chore: copy reapply carry-over files from %s\n' "${old_branch}"
+}
+
+resolve_carry_over_base_commit() {
+  if [[ -n "${OLD_BASE_TAG}" ]]; then
+    git rev-parse "${OLD_BASE_TAG}^{commit}"
+    return 0
+  fi
+
+  git merge-base "${TAG}" "${OLD_BRANCH}" 2>/dev/null || die "Unable to compute merge-base between ${TAG} and ${OLD_BRANCH}. Pass --old-base-tag."
+}
+
+readonly REAPPLY_COPY_PATHS=(
+  "README.md"
+  "CHANGED.md"
+  ".agents/skills"
+)
 
 REMOTE="upstream"
 TAG_PATTERN="rust-*"
@@ -261,19 +411,26 @@ fi
 echo "[INFO] Creating re-implementation bundle..."
 "${bundle_script}" "${bundle_args[@]}"
 
+carry_over_base_commit="$(resolve_carry_over_base_commit)"
+
 echo "[INFO] Creating new branch ${NEW_BRANCH} from tag ${TAG}..."
 git switch -c "${NEW_BRANCH}" "${TAG}"
 
-echo "[INFO] Copying README.md, CHANGED.md, and .agents/skills from ${OLD_BRANCH} (no modifications)..."
-copy_file_from_old_branch "${OLD_BRANCH}" "README.md"
-copy_file_from_old_branch "${OLD_BRANCH}" "CHANGED.md"
-copy_path_from_old_branch "${OLD_BRANCH}" ".agents/skills"
+echo "[INFO] Copying fixed carry-over files from ${OLD_BRANCH}..."
+for path in "${REAPPLY_COPY_PATHS[@]}"; do
+  copy_entry_from_old_branch "${OLD_BRANCH}" "${path}"
+done
+
+echo "[INFO] Replaying npm/release/CI carry-over changes from git diff..."
+apply_release_carry_over_changes "${carry_over_base_commit}" "${OLD_BRANCH}"
+
 if ! git diff --cached --quiet; then
-  if git commit -m "docs: copy README.md, CHANGED.md, and .agents/skills from ${OLD_BRANCH}"; then
-    echo "[OK] Committed README.md, CHANGED.md, and .agents/skills copy"
+  carry_over_commit_msg="$(carry_over_commit_message "${OLD_BRANCH}")"
+  if git commit -m "${carry_over_commit_msg}"; then
+    echo "[OK] Committed reapply carry-over file copy"
   else
-    echo "[WARN] Unable to commit copied docs/skills (git user.name/user.email?)."
-    echo "[WARN] Commit manually with: git commit -m \"docs: copy README.md, CHANGED.md, and .agents/skills from ${OLD_BRANCH}\""
+    echo "[WARN] Unable to commit copied carry-over files (git user.name/user.email?)."
+    echo "[WARN] Commit manually with: git commit -m \"${carry_over_commit_msg}\""
   fi
 fi
 
