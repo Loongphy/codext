@@ -7,13 +7,6 @@ An opinionated Codex CLI. This is strictly a personal hobby project, forked from
 ![TUI](
 https://github.com/user-attachments/assets/127abbc2-cb30-4d6e-8a81-ce707260c045)
 
-> [!IMPORTANT]
-> **DO NOT USE IN PRODUCTION.**
-> To keep upstream sync easy, we do not write test code for what we changed. This project is for experimental use only.
-
-* **DX Focused:** Focus strictly on optimizing developer experience, **without adding new features**.
-* **Upstream Sync:** We sync with the upstream repository regularly.
-
 ## Quick Start
 
 Choose one of these two ways:
