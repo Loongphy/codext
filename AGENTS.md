@@ -1,3 +1,11 @@
+# Temporary Reapply Guardrails
+
+- Current work on this branch is an upstream reapply / re-implementation for `rust-v0.120.0`.
+- Only implementation code and necessary docs may be changed during this reapply.
+- Do not add or modify any tests or snapshot files as part of this work.
+- Do not run lint / format / auto-fix commands for this reapply, including `cargo fmt`, `just fmt`, `cargo clippy`, or `just fix`.
+- This reapply is considered complete only when the `codex-upstream-reapply` skill acceptance criteria are satisfied.
+
 # Rust/codex-rs
 
 In the codex-rs folder where the rust code lives:

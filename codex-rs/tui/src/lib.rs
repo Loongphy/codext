@@ -83,6 +83,7 @@ mod app_event_sender;
 mod app_server_approval_conversions;
 mod app_server_session;
 mod ascii_animation;
+mod auth_watch;
 #[cfg(not(target_os = "linux"))]
 mod audio_device;
 #[cfg(target_os = "linux")]
@@ -117,6 +118,7 @@ mod external_editor;
 mod file_search;
 mod frames;
 mod get_git_diff;
+mod git_status;
 mod history_cell;
 pub(crate) mod insert_history;
 pub use insert_history::insert_history_lines;

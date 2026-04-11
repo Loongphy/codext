@@ -326,6 +326,8 @@ use crate::exec_cell::new_active_exec_command;
 use crate::exec_command::split_command_string;
 use crate::exec_command::strip_bash_lc_and_escape;
 use crate::get_git_diff::get_git_diff;
+use crate::git_status::GitStatusSummary;
+use crate::git_status::collect_git_status_summary;
 use crate::history_cell;
 #[cfg(test)]
 use crate::history_cell::AgentMessageCell;
@@ -384,12 +386,21 @@ use codex_protocol::protocol::SandboxPolicy;
 use codex_utils_approval_presets::ApprovalPreset;
 use codex_utils_approval_presets::builtin_approval_presets;
 use strum::IntoEnumIterator;
+use tokio::task::JoinHandle;
 use unicode_segmentation::UnicodeSegmentation;
 
 const USER_SHELL_COMMAND_HELP_TITLE: &str = "Prefix a command with ! to run it locally";
 const USER_SHELL_COMMAND_HELP_HINT: &str = "Example: !ls";
 const DEFAULT_OPENAI_BASE_URL: &str = "https://api.openai.com/v1";
-const DEFAULT_STATUS_LINE_ITEMS: [&str; 2] = ["model-with-reasoning", "current-dir"];
+const DEFAULT_STATUS_LINE_ITEMS: [&str; 5] = [
+    "model-with-reasoning",
+    "current-dir",
+    "git-branch",
+    "five-hour-limit",
+    "weekly-limit",
+];
+const RATE_LIMIT_REFRESH_INTERVAL_SECS: u64 = 15;
+const GIT_STATUS_POLL_INTERVAL_SECS: u64 = 15;
 // Track information about an in-flight exec command.
 struct RunningCommand {
     command: Vec<String>,
@@ -768,6 +779,9 @@ pub(crate) struct ChatWidget {
     refreshing_status_outputs: Vec<(u64, StatusHistoryHandle)>,
     next_status_refresh_request_id: u64,
     plan_type: Option<PlanType>,
+    rate_limit_poller: Option<JoinHandle<()>>,
+    git_status: Option<GitStatusSummary>,
+    git_status_poller: Option<JoinHandle<()>>,
     rate_limit_warnings: RateLimitWarningState,
     rate_limit_switch_prompt: RateLimitSwitchPromptState,
     adaptive_chunking: AdaptiveChunkingPolicy,
@@ -2462,7 +2476,12 @@ impl ChatWidget {
     }
 
     fn open_plan_implementation_prompt(&mut self) {
-        let default_mask = collaboration_modes::default_mode_mask(self.model_catalog.as_ref());
+        let collaboration_mode_overrides = self.config.collaboration_mode_overrides();
+        let default_mask = collaboration_modes::default_mode_mask_with_overrides(
+            self.current_collaboration_mode.model(),
+            self.current_collaboration_mode.reasoning_effort(),
+            collaboration_mode_overrides.as_ref(),
+        );
         let (implement_actions, implement_disabled_reason) = match default_mask {
             Some(mask) => {
                 let user_text = PLAN_IMPLEMENTATION_CODING_MESSAGE.to_string();
@@ -2755,6 +2774,25 @@ impl ChatWidget {
         }
         self.refresh_status_line();
     }
+
+    pub(crate) fn handle_auth_identity_changed(&mut self) {
+        self.rate_limit_snapshots_by_limit_id.clear();
+        self.rate_limit_warnings = RateLimitWarningState::default();
+        self.rate_limit_switch_prompt = RateLimitSwitchPromptState::default();
+        self.git_status = None;
+        self.refresh_status_line();
+        self.request_redraw();
+    }
+
+    pub(crate) fn on_git_status_update(&mut self, summary: Option<GitStatusSummary>) {
+        if self.git_status == summary {
+            return;
+        }
+        self.git_status = summary;
+        self.refresh_status_line();
+        self.request_redraw();
+    }
+
     /// Finalize any active exec as failed and stop/clear agent-turn UI state.
     ///
     /// This does not clear MCP startup tracking, because MCP startup can overlap with turn cleanup
@@ -4784,6 +4822,9 @@ impl ChatWidget {
             refreshing_status_outputs: Vec::new(),
             next_status_refresh_request_id: 0,
             plan_type: initial_plan_type,
+            rate_limit_poller: None,
+            git_status: None,
+            git_status_poller: None,
             rate_limit_warnings: RateLimitWarningState::default(),
             rate_limit_switch_prompt: RateLimitSwitchPromptState::default(),
             adaptive_chunking: AdaptiveChunkingPolicy::default(),
@@ -4905,6 +4946,8 @@ impl ChatWidget {
             .bottom_pane
             .set_connectors_enabled(widget.connectors_enabled());
         widget.refresh_status_surfaces();
+        widget.prefetch_rate_limits();
+        widget.start_git_status_poller();
 
         widget
     }
@@ -4923,6 +4966,19 @@ impl ChatWidget {
                 self.quit_shortcut_key = None;
                 self.copy_last_agent_markdown();
                 return;
+            }
+            KeyEvent {
+                code: KeyCode::Char(c),
+                modifiers,
+                kind: KeyEventKind::Press,
+                ..
+            } if modifiers.contains(KeyModifiers::CONTROL)
+                && modifiers.contains(KeyModifiers::SHIFT)
+                && c.eq_ignore_ascii_case(&'c') =>
+            {
+                if self.on_ctrl_shift_c() {
+                    return;
+                }
             }
             KeyEvent {
                 code: KeyCode::Char(c),
@@ -5295,7 +5351,12 @@ impl ChatWidget {
                     );
                     return;
                 }
-                if let Some(mask) = collaboration_modes::plan_mask(self.model_catalog.as_ref()) {
+                let collaboration_mode_overrides = self.config.collaboration_mode_overrides();
+                if let Some(mask) = collaboration_modes::plan_mask_with_overrides(
+                    self.current_collaboration_mode.model(),
+                    self.current_collaboration_mode.reasoning_effort(),
+                    collaboration_mode_overrides.as_ref(),
+                ) {
                     self.set_collaboration_mask(mask);
                 } else {
                     self.add_info_message(
@@ -7676,7 +7737,28 @@ impl ChatWidget {
     ) -> Option<String> {
         let window = window?;
         let remaining = (100.0f64 - window.used_percent).clamp(0.0f64, 100.0f64);
-        Some(format!("{label} {remaining:.0}%"))
+        Some(match window.resets_at.as_ref() {
+            Some(resets_at) => format!("{label} {remaining:.0}% {resets_at}"),
+            None => format!("{label} {remaining:.0}%"),
+        })
+    }
+
+    fn status_line_git_summary(&self) -> Option<String> {
+        let summary = self.git_status.as_ref()?;
+        let mut text = summary.branch.clone();
+        if summary.ahead > 0 {
+            text.push_str(&format!(" ↑{}", summary.ahead));
+        }
+        if summary.behind > 0 {
+            text.push_str(&format!(" ↓{}", summary.behind));
+        }
+        if summary.changed > 0 {
+            text.push_str(&format!(" +{}", summary.changed));
+        }
+        if summary.untracked > 0 {
+            text.push_str(&format!(" ?{}", summary.untracked));
+        }
+        Some(text)
     }
 
     fn status_line_reasoning_effort_label(effort: Option<ReasoningEffortConfig>) -> &'static str {
@@ -7710,7 +7792,17 @@ impl ChatWidget {
         );
     }
 
-    fn stop_rate_limit_poller(&mut self) {}
+    fn stop_rate_limit_poller(&mut self) {
+        if let Some(handle) = self.rate_limit_poller.take() {
+            handle.abort();
+        }
+    }
+
+    fn stop_git_status_poller(&mut self) {
+        if let Some(handle) = self.git_status_poller.take() {
+            handle.abort();
+        }
+    }
 
     pub(crate) fn refresh_connectors(&mut self, force_refetch: bool) {
         self.prefetch_connectors_with_options(force_refetch);
@@ -7794,7 +7886,53 @@ impl ChatWidget {
 
     #[cfg_attr(not(test), allow(dead_code))]
     fn prefetch_rate_limits(&mut self) {
-        self.stop_rate_limit_poller();
+        if self.should_prefetch_rate_limits() {
+            self.start_rate_limit_poller();
+        } else {
+            self.stop_rate_limit_poller();
+        }
+    }
+
+    fn start_rate_limit_poller(&mut self) {
+        if self.rate_limit_poller.is_some() {
+            return;
+        }
+
+        let app_event_tx = self.app_event_tx.clone();
+
+        let handle = tokio::spawn(async move {
+            let mut interval =
+                tokio::time::interval(Duration::from_secs(RATE_LIMIT_REFRESH_INTERVAL_SECS));
+
+            loop {
+                interval.tick().await;
+                app_event_tx.send(AppEvent::RefreshRateLimits {
+                    origin: RateLimitRefreshOrigin::BackgroundPoll,
+                });
+            }
+        });
+
+        self.rate_limit_poller = Some(handle);
+    }
+
+    fn start_git_status_poller(&mut self) {
+        self.stop_git_status_poller();
+
+        let cwd = self.config.cwd.clone();
+        let app_event_tx = self.app_event_tx.clone();
+
+        let handle = tokio::spawn(async move {
+            let mut interval =
+                tokio::time::interval(Duration::from_secs(GIT_STATUS_POLL_INTERVAL_SECS));
+
+            loop {
+                interval.tick().await;
+                let summary = collect_git_status_summary(cwd.as_path()).await;
+                app_event_tx.send(AppEvent::GitStatusFetched(summary));
+            }
+        });
+
+        self.git_status_poller = Some(handle);
     }
 
     #[cfg_attr(not(test), allow(dead_code))]
@@ -8348,7 +8486,12 @@ impl ChatWidget {
     }
 
     pub(crate) fn open_collaboration_modes_popup(&mut self) {
-        let presets = collaboration_modes::presets_for_tui(self.model_catalog.as_ref());
+        let collaboration_mode_overrides = self.config.collaboration_mode_overrides();
+        let presets = collaboration_modes::presets_for_tui_with_overrides(
+            self.current_collaboration_mode.model(),
+            self.current_collaboration_mode.reasoning_effort(),
+            collaboration_mode_overrides.as_ref(),
+        );
         if presets.is_empty() {
             self.add_info_message(
                 "No collaboration modes are available right now.".to_string(),
@@ -8362,8 +8505,12 @@ impl ChatWidget {
             .as_ref()
             .and_then(|mask| mask.mode)
             .or_else(|| {
-                collaboration_modes::default_mask(self.model_catalog.as_ref())
-                    .and_then(|mask| mask.mode)
+                collaboration_modes::default_mask_with_overrides(
+                    self.current_collaboration_mode.model(),
+                    self.current_collaboration_mode.reasoning_effort(),
+                    collaboration_mode_overrides.as_ref(),
+                )
+                .and_then(|mask| mask.mode)
             });
         let items: Vec<SelectionItem> = presets
             .into_iter()
@@ -8458,8 +8605,11 @@ impl ChatWidget {
                 "user-chosen Plan override ({})",
                 Self::reasoning_effort_label(plan_override).to_lowercase()
             )
-        } else if let Some(plan_mask) = collaboration_modes::plan_mask(self.model_catalog.as_ref())
-        {
+        } else if let Some(plan_mask) = collaboration_modes::plan_mask_with_overrides(
+            self.current_collaboration_mode.model(),
+            self.current_collaboration_mode.reasoning_effort(),
+            self.config.collaboration_mode_overrides().as_ref(),
+        ) {
             match plan_mask.reasoning_effort.flatten() {
                 Some(plan_effort) => format!(
                     "built-in Plan default ({})",
@@ -9640,9 +9790,11 @@ impl ChatWidget {
         {
             if let Some(effort) = effort {
                 mask.reasoning_effort = Some(Some(effort));
-            } else if let Some(plan_mask) =
-                collaboration_modes::plan_mask(self.model_catalog.as_ref())
-            {
+            } else if let Some(plan_mask) = collaboration_modes::plan_mask_with_overrides(
+                self.current_collaboration_mode.model(),
+                self.current_collaboration_mode.reasoning_effort(),
+                self.config.collaboration_mode_overrides().as_ref(),
+            ) {
                 mask.reasoning_effort = plan_mask.reasoning_effort;
             }
         }
@@ -9712,6 +9864,10 @@ impl ChatWidget {
         self.has_chatgpt_account = has_chatgpt_account;
         self.bottom_pane
             .set_connectors_enabled(self.connectors_enabled());
+        self.prefetch_rate_limits();
+        if !self.should_prefetch_rate_limits() {
+            self.on_rate_limit_snapshot(None);
+        }
     }
 
     pub(crate) fn should_show_fast_status(
@@ -9902,11 +10058,16 @@ impl ChatWidget {
     }
 
     fn initial_collaboration_mask(
-        _config: &Config,
-        model_catalog: &ModelCatalog,
+        config: &Config,
+        _model_catalog: &ModelCatalog,
         model_override: Option<&str>,
     ) -> Option<CollaborationModeMask> {
-        let mut mask = collaboration_modes::default_mask(model_catalog)?;
+        let collaboration_mode_overrides = config.collaboration_mode_overrides();
+        let mut mask = collaboration_modes::default_mask_with_overrides(
+            config.model.as_deref().unwrap_or_default(),
+            config.model_reasoning_effort,
+            collaboration_mode_overrides.as_ref(),
+        )?;
         if let Some(model_override) = model_override {
             mask.model = Some(model_override.to_string());
         }
@@ -10019,8 +10180,11 @@ impl ChatWidget {
             return;
         }
 
-        if let Some(next_mask) = collaboration_modes::next_mask(
-            self.model_catalog.as_ref(),
+        let collaboration_mode_overrides = self.config.collaboration_mode_overrides();
+        if let Some(next_mask) = collaboration_modes::next_mask_with_overrides(
+            self.current_collaboration_mode.model(),
+            self.current_collaboration_mode.reasoning_effort(),
+            collaboration_mode_overrides.as_ref(),
             self.active_collaboration_mask.as_ref(),
         ) {
             self.set_collaboration_mask(next_mask);
@@ -10163,7 +10327,8 @@ impl ChatWidget {
 
     fn rename_confirmation_cell(name: &str, thread_id: Option<ThreadId>) -> PlainHistoryCell {
         let resume_cmd = codex_core::util::resume_command(Some(name), thread_id)
-            .unwrap_or_else(|| format!("codex resume {name}"));
+            .map(|command| command.replacen("codex resume", "codext resume", 1))
+            .unwrap_or_else(|| format!("codext resume {name}"));
         let name = name.to_string();
         let line = vec![
             "• ".into(),
@@ -10492,6 +10657,37 @@ impl ChatWidget {
         if self.is_cancellable_work_active() {
             self.submit_op(AppCommand::interrupt());
         }
+    }
+
+    /// Handles a Ctrl+Shift+C press at the chat-widget layer.
+    ///
+    /// This is a composer-only shortcut: when the main draft contains visible text and no modal
+    /// surface is active, copy that draft to the system clipboard. If there is nothing copyable,
+    /// fall back so the existing Ctrl+C behavior still applies.
+    fn on_ctrl_shift_c(&mut self) -> bool {
+        if self.realtime_conversation.is_live() || !self.bottom_pane.no_modal_or_popup_active() {
+            return false;
+        }
+
+        let text = self.bottom_pane.composer_text_with_pending();
+        if text.is_empty() {
+            return false;
+        }
+
+        match crate::clipboard_copy::copy_to_clipboard(&text) {
+            Ok(lease) => {
+                self.clipboard_lease = lease;
+                self.add_to_history(history_cell::new_info_event(
+                    "Copied composer draft to clipboard.".to_string(),
+                    /*hint*/ None,
+                ));
+            }
+            Err(error) => self.add_to_history(history_cell::new_error_event(format!(
+                "Copy failed: {error}"
+            ))),
+        }
+        self.request_redraw();
+        true
     }
 
     /// Handles a Ctrl+D press at the chat-widget layer.
@@ -11115,6 +11311,7 @@ impl Drop for ChatWidget {
     fn drop(&mut self) {
         self.reset_realtime_conversation_state();
         self.stop_rate_limit_poller();
+        self.stop_git_status_poller();
     }
 }
 

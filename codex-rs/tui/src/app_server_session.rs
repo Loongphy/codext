@@ -273,6 +273,7 @@ impl AppServerSession {
                 request_id: account_request_id,
                 params: GetAccountParams {
                     refresh_token: false,
+                    reload_auth_from_storage: false,
                 },
             })
             .await
@@ -281,6 +282,35 @@ impl AppServerSession {
 
     pub(crate) async fn next_event(&mut self) -> Option<AppServerEvent> {
         self.client.next_event().await
+    }
+
+    pub(crate) async fn reload_account_from_storage(&mut self) -> Result<GetAccountResponse> {
+        let request_id = self.next_request_id();
+        self.client
+            .request_typed(ClientRequest::GetAccount {
+                request_id,
+                params: GetAccountParams {
+                    refresh_token: false,
+                    reload_auth_from_storage: true,
+                },
+            })
+            .await
+            .wrap_err("account/read failed while reloading auth from storage")
+    }
+
+    pub(crate) async fn get_account_rate_limit_snapshots(
+        &mut self,
+    ) -> Result<Vec<RateLimitSnapshot>> {
+        let request_id = self.next_request_id();
+        let response: GetAccountRateLimitsResponse = self
+            .client
+            .request_typed(ClientRequest::GetAccountRateLimits {
+                request_id,
+                params: Default::default(),
+            })
+            .await
+            .wrap_err("account/rateLimits/read failed")?;
+        Ok(app_server_rate_limit_snapshots_to_core(response))
     }
 
     pub(crate) async fn start_thread(&mut self, config: &Config) -> Result<AppServerStartedThread> {
@@ -773,6 +803,27 @@ pub(crate) fn status_account_display_from_auth_mode(
             })
         }
         None => None,
+    }
+}
+
+pub(crate) fn account_state_from_get_account_response(
+    account: &GetAccountResponse,
+) -> (
+    Option<StatusAccountDisplay>,
+    Option<codex_protocol::account::PlanType>,
+    bool,
+) {
+    match account.account.as_ref() {
+        Some(Account::ApiKey {}) => (Some(StatusAccountDisplay::ApiKey), None, false),
+        Some(Account::Chatgpt { email, plan_type }) => (
+            Some(StatusAccountDisplay::ChatGpt {
+                email: Some(email.clone()),
+                plan: Some(plan_type_display_name(*plan_type)),
+            }),
+            Some(*plan_type),
+            true,
+        ),
+        None => (None, None, false),
     }
 }
 

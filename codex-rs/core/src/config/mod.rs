@@ -30,6 +30,7 @@ use codex_config::config_toml::validate_model_providers;
 use codex_config::profile_toml::ConfigProfile;
 use codex_config::types::ApprovalsReviewer;
 use codex_config::types::AuthCredentialsStoreMode;
+use codex_config::types::CollaborationModeOverrides;
 use codex_config::types::DEFAULT_OTEL_ENVIRONMENT;
 use codex_config::types::History;
 use codex_config::types::McpServerConfig;
@@ -751,6 +752,14 @@ impl Config {
             .cli_overrides(cli_overrides)
             .build()
             .await
+    }
+
+    pub fn collaboration_mode_overrides(&self) -> Option<CollaborationModeOverrides> {
+        self.config_layer_stack
+            .effective_config()
+            .try_into()
+            .ok()
+            .and_then(|config: ConfigToml| config.collaboration_modes)
     }
 
     /// Load a default configuration when user config files are invalid.
