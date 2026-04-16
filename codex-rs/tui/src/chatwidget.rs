@@ -342,7 +342,6 @@ use crate::key_hint::KeyBinding;
 use crate::markdown::append_markdown;
 use crate::render::Insets;
 use crate::render::renderable::ColumnRenderable;
-use crate::render::renderable::FlexRenderable;
 use crate::render::renderable::Renderable;
 use crate::render::renderable::RenderableExt;
 use crate::render::renderable::RenderableItem;
@@ -356,6 +355,7 @@ mod interrupts;
 use self::interrupts::InterruptManager;
 mod session_header;
 use self::session_header::SessionHeader;
+mod status_header;
 mod skills;
 use self::skills::collect_tool_mentions;
 use self::skills::find_app_mentions;
@@ -11254,30 +11254,7 @@ impl ChatWidget {
     }
 
     fn as_renderable(&self) -> RenderableItem<'_> {
-        let active_cell_renderable = match &self.active_cell {
-            Some(cell) => RenderableItem::Borrowed(cell).inset(Insets::tlbr(
-                /*top*/ 1, /*left*/ 0, /*bottom*/ 0, /*right*/ 0,
-            )),
-            None => RenderableItem::Owned(Box::new(())),
-        };
-        let active_hook_cell_renderable = match &self.active_hook_cell {
-            Some(cell) if cell.should_render() => {
-                RenderableItem::Borrowed(cell).inset(Insets::tlbr(
-                    /*top*/ 1, /*left*/ 0, /*bottom*/ 0, /*right*/ 0,
-                ))
-            }
-            _ => RenderableItem::Owned(Box::new(())),
-        };
-        let mut flex = FlexRenderable::new();
-        flex.push(/*flex*/ 1, active_cell_renderable);
-        flex.push(/*flex*/ 0, active_hook_cell_renderable);
-        flex.push(
-            /*flex*/ 0,
-            RenderableItem::Borrowed(&self.bottom_pane).inset(Insets::tlbr(
-                /*top*/ 1, /*left*/ 0, /*bottom*/ 0, /*right*/ 0,
-            )),
-        );
-        RenderableItem::Owned(Box::new(flex))
+        status_header::as_renderable(self)
     }
 }
 
