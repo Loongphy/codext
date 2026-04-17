@@ -33,6 +33,7 @@ pub(crate) struct SessionState {
     pub(crate) active_connector_selection: HashSet<String>,
     pub(crate) pending_session_start_source: Option<codex_hooks::SessionStartSource>,
     granted_permissions: Option<PermissionProfile>,
+    project_docs_snapshot: Option<String>,
     next_turn_is_first: bool,
 }
 
@@ -52,6 +53,7 @@ impl SessionState {
             active_connector_selection: HashSet::new(),
             pending_session_start_source: None,
             granted_permissions: None,
+            project_docs_snapshot: None,
             next_turn_is_first: true,
         }
     }
@@ -225,6 +227,14 @@ impl SessionState {
 
     pub(crate) fn granted_permissions(&self) -> Option<PermissionProfile> {
         self.granted_permissions.clone()
+    }
+
+    pub(crate) fn project_docs_snapshot(&self) -> Option<String> {
+        self.project_docs_snapshot.clone()
+    }
+
+    pub(crate) fn set_project_docs_snapshot(&mut self, snapshot: Option<String>) {
+        self.project_docs_snapshot = snapshot;
     }
 }
 

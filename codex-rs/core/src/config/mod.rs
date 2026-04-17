@@ -30,6 +30,7 @@ use codex_config::config_toml::validate_model_providers;
 use codex_config::profile_toml::ConfigProfile;
 use codex_config::types::ApprovalsReviewer;
 use codex_config::types::AuthCredentialsStoreMode;
+use codex_config::types::CollaborationModeOverrides;
 use codex_config::types::DEFAULT_OTEL_ENVIRONMENT;
 use codex_config::types::History;
 use codex_config::types::McpServerConfig;
@@ -773,6 +774,14 @@ impl Config {
             configured_mcp_servers,
             plugin_capability_summaries: loaded_plugins.capability_summaries().to_vec(),
         }
+    }
+
+    pub fn collaboration_mode_overrides(&self) -> Option<CollaborationModeOverrides> {
+        self.config_layer_stack
+            .effective_config()
+            .try_into()
+            .ok()
+            .and_then(|config: ConfigToml| config.collaboration_modes)
     }
 
     /// This is the preferred way to create an instance of [Config].

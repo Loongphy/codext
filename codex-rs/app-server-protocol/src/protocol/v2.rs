@@ -1773,6 +1773,13 @@ pub struct GetAccountParams {
     /// themselves and call `account/login/start` with `chatgptAuthTokens`.
     #[serde(default)]
     pub refresh_token: bool,
+
+    /// When `true`, reloads the auth snapshot from storage before returning.
+    ///
+    /// This keeps long-lived clients in sync with `auth.json` updates without
+    /// requiring a full app-server restart.
+    #[serde(default)]
+    pub reload_auth_from_storage: bool,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, JsonSchema, TS)]
