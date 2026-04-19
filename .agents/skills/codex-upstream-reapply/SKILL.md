@@ -119,6 +119,8 @@ bash .agents/skills/codex-upstream-reapply/scripts/start_from_tag.sh \
 
 如果分支上包含 codext npm / release 相关改动，必须先看 `references/npm-release.md`。这份文档明确要求：在 `NEW_BRANCH` 上用 `OLD_BRANCH` 的 `rust-release.yml` 覆盖当前 tag 分支内容，删除其他 workflow，并直接复制 `.github/scripts/install-musl-build-tools.sh`、`.github/scripts/rusty_v8_bazel.py`、`codex-cli/package.json`、`codex-cli/bin/codex.js`、`codex-cli/bin/rg`、`codex-cli/scripts/build_npm_package.py`、`codex-cli/scripts/install_native_deps.py`；这些是必做项，不是建议。只有这些动作完成后，才允许评估上游 / 新 tag 额外新增或改动的 CI 是否要合并或忽略。
 
+如果这套 codext npm / release 规则生效，所有用户可见文案、提示、tooltips、README/技能文档里凡是引用安装后命令名的地方，也必须同步使用 `codext`。例如恢复会话提示应写成 `codext resume <session>`，不要继续保留 `codex resume ...` 这类上游命令名。
+
 如果这一步复制了 `README.md` 到 `NEW_BRANCH`，则紧接着必须更新 `NEW_BRANCH` 根目录 `AGENTS.md`，补充一段当前任务说明，至少包含这些信息：
 
 - 当前正在进行 `TAG` 对应的 upstream reapply / re-implementation 工作。

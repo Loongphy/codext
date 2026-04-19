@@ -34,6 +34,7 @@
 - `codext` 对应的是 `@loongphy/codext` 包里的 JS launcher，不要求 vendor 内原生二进制也改名
 - 当前允许 launcher 最终去执行 vendor 内的 `codex` / `codex.exe`
 - 只要 launcher 解析的是 `@loongphy/codext-*` 这些 scoped 平台包，而不是 `@openai/codex-*`，就不会和 `@openai/codex` 混用
+- 因此所有用户可见文案、CLI 提示、tooltips、README/技能文档里涉及安装后命令名时，也应统一写成 `codext`；例如应显示 `codext resume <session>`，而不是 `codex resume <session>`
 
 如果 upstream / 新 tag 没有明确要求变更这些名称，就不要在 reapply 时改动它们。
 

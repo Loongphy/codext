@@ -45,4 +45,10 @@ This file captures the full set of changes currently in the working tree.
 
 ## TUI exit resume command
 
-- Added a fork requirement that the final resume hint shown after exiting Codex TUI uses `codext resume <session>` instead of `codex resume <session>`.
+- Added a fork requirement that user-facing resume hints use `codext resume <session>` / `codext resume <thread-name>` instead of `codex resume ...`.
+- This includes the final resume hint shown after exiting the TUI and other resume guidance surfaced inside the TUI.
+
+## WSL bubblewrap `.codex` artifact
+
+- Fixed the Linux bubblewrap sandbox path that protected a missing top-level `.codex` by bind-mounting `/dev/null` onto the first missing component.
+- Missing protected paths now use a sandbox-local read-only blocker file instead of materializing a host-side `.codex` file in the project root.

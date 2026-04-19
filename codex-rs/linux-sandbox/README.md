@@ -59,9 +59,11 @@ commands that would enter the bubblewrap path.
   still win. For example, `/repo = write`, `/repo/a = none`, `/repo/a/b = write`
   keeps `/repo` writable, denies `/repo/a`, and reopens `/repo/a/b` as
   writable again.
-- When the default bubblewrap pipeline is active, symlink-in-path and non-existent protected paths inside
-  writable roots are blocked by mounting `/dev/null` on the symlink or first
-  missing component.
+- When the default bubblewrap pipeline is active, symlink-in-path protected
+  paths inside writable roots are blocked by bind-mounting `/dev/null` on the
+  resolved target, while non-existent protected paths are blocked with a
+  sandbox-local read-only file blocker at the first missing component so the
+  host filesystem is not materialized.
 - When the default bubblewrap pipeline is active, the helper explicitly isolates the user namespace via
   `--unshare-user` and the PID namespace via `--unshare-pid`.
 - When the default bubblewrap pipeline is active and network is restricted without proxy routing, the helper also
