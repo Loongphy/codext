@@ -175,7 +175,7 @@ struct UsageErrorBody {
     resets_at: Option<i64>,
 }
 
-#[derive(Clone, Default)]
+#[derive(Clone, Debug, Default)]
 pub struct CoreAuthProvider {
     pub token: Option<String>,
     pub account_id: Option<String>,

@@ -235,6 +235,7 @@ struct WebsocketSession {
     connection: Option<ApiWebSocketConnection>,
     last_request: Option<ResponsesApiRequest>,
     last_response_rx: Option<oneshot::Receiver<LastResponse>>,
+    api_auth: CoreAuthProvider,
     connection_reused: StdMutex<bool>,
 }
 
@@ -803,6 +804,7 @@ impl ModelClientSession {
         self.websocket_session.connection = None;
         self.websocket_session.last_request = None;
         self.websocket_session.last_response_rx = None;
+        self.websocket_session.api_auth = CoreAuthProvider::default();
         self.websocket_session
             .set_connection_reused(/*connection_reused*/ false);
     }
@@ -1053,6 +1055,12 @@ impl ModelClientSession {
             auth_context,
             request_route_telemetry,
         } = params;
+        if self.websocket_session.api_auth.token != api_auth.token
+            || self.websocket_session.api_auth.account_id != api_auth.account_id
+        {
+            self.reset_websocket_session();
+        }
+
         let needs_new = match self.websocket_session.connection.as_ref() {
             Some(conn) => conn.is_closed().await,
             None => true,
@@ -1065,12 +1073,13 @@ impl ModelClientSession {
                 .turn_state
                 .clone()
                 .unwrap_or_else(|| Arc::clone(&self.turn_state));
+            let websocket_api_auth = api_auth.clone();
             let new_conn = match self
                 .client
                 .connect_websocket(
                     session_telemetry,
                     api_provider,
-                    api_auth,
+                    websocket_api_auth.clone(),
                     Some(turn_state),
                     turn_metadata_header,
                     auth_context,
@@ -1087,6 +1096,7 @@ impl ModelClientSession {
                 }
             };
             self.websocket_session.connection = Some(new_conn);
+            self.websocket_session.api_auth = websocket_api_auth;
             self.websocket_session
                 .set_connection_reused(/*connection_reused*/ false);
         } else {
