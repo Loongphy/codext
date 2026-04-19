@@ -23,11 +23,13 @@ This file captures the full set of changes currently in the working tree.
 
 - The running TUI now watches `CODEX_HOME/auth.json` and reloads auth when the file changes.
 - Watch notifications are now trailing-debounced so reload happens after writes settle, reducing partial-file reads.
+- If `auth.json` changes while the TUI still has an active task/turn running, auth reload is deferred until that work fully finishes; Codex does not hot-swap auth in the middle of the running task.
 - Auth reload failures no longer clear cached auth (so transient parse/read errors do not appear as a logout).
 - On auth reload failure, the TUI retries every 5 seconds for up to 3 attempts before surfacing a final warning.
 - When the account identity changes, the TUI surfaces a warning in the transcript (including old/new emails when available).
 - Auth change warnings now show the account plan type (e.g., Plus/Team/Free/Pro) instead of the generic ChatGPT label.
 - Rate-limit state and polling are refreshed after auth changes so the header reflects the new account.
+- That post-task auth refresh also resets cached rate-limit warning/prompt state for the new auth snapshot, so stale usage-limit/UI state from the previous auth context does not keep re-triggering after the reload.
 
 ## Collaboration modes and config overrides
 

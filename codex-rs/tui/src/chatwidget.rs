@@ -874,6 +874,9 @@ pub(crate) struct ChatWidget {
     retry_status_header: Option<String>,
     // Set when commentary output completes; once stream queues go idle we restore the status row.
     pending_status_indicator_restore: bool,
+    // When auth.json changes mid-task, keep only the earliest pending reload attempt and
+    // re-dispatch it once the task indicator returns to idle.
+    pending_auth_reload_attempt: Option<u8>,
     suppress_queue_autosend: bool,
     thread_id: Option<ThreadId>,
     last_turn_id: Option<String>,
@@ -1708,6 +1711,24 @@ impl ChatWidget {
         self.bottom_pane
             .set_task_running(self.agent_turn_running || self.mcp_startup_status.is_some());
         self.refresh_terminal_title();
+        self.maybe_dispatch_deferred_auth_reload();
+    }
+
+    fn maybe_dispatch_deferred_auth_reload(&mut self) {
+        if self.bottom_pane.is_task_running() {
+            return;
+        }
+
+        let Some(attempt) = self.pending_auth_reload_attempt.take() else {
+            return;
+        };
+
+        if attempt <= 1 {
+            self.app_event_tx.send(AppEvent::AuthFileChanged);
+        } else {
+            self.app_event_tx
+                .send(AppEvent::AuthFileChangedRetry { attempt });
+        }
     }
 
     fn restore_reasoning_status_header(&mut self) {
@@ -2835,6 +2856,13 @@ impl ChatWidget {
         self.git_status = None;
         self.refresh_status_line();
         self.request_redraw();
+    }
+
+    pub(crate) fn defer_auth_reload_until_idle(&mut self, attempt: u8) {
+        self.pending_auth_reload_attempt = Some(
+            self.pending_auth_reload_attempt
+                .map_or(attempt, |pending_attempt| pending_attempt.min(attempt)),
+        );
     }
 
     pub(crate) fn on_git_status_update(&mut self, summary: Option<GitStatusSummary>) {
@@ -4946,6 +4974,7 @@ impl ChatWidget {
             terminal_title_status_kind: TerminalTitleStatusKind::Working,
             retry_status_header: None,
             pending_status_indicator_restore: false,
+            pending_auth_reload_attempt: None,
             suppress_queue_autosend: false,
             thread_id: None,
             last_turn_id: None,
@@ -10345,6 +10374,10 @@ impl ChatWidget {
 
     pub(crate) fn composer_is_empty(&self) -> bool {
         self.bottom_pane.composer_is_empty()
+    }
+
+    pub(crate) fn is_task_running(&self) -> bool {
+        self.bottom_pane.is_task_running()
     }
 
     #[cfg(test)]

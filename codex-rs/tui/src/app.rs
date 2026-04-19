@@ -1159,6 +1159,14 @@ impl App {
         app_server: &mut AppServerSession,
         attempt: u8,
     ) {
+        if self.chat_widget.is_task_running() {
+            tracing::info!(
+                "auth update detected while a task is still running; deferring reload until idle"
+            );
+            self.chat_widget.defer_auth_reload_until_idle(attempt);
+            return;
+        }
+
         let old_identity = AuthIdentity::from_widget(&self.chat_widget);
         match app_server.reload_account_from_storage().await {
             Ok(account) => {
