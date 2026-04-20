@@ -1205,6 +1205,7 @@ impl App {
                             &new_identity,
                         )));
                 }
+                self.chat_widget.maybe_send_next_queued_input();
                 tui.frame_requester().schedule_frame();
             }
             Err(err) => {

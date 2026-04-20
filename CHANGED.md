@@ -30,6 +30,13 @@ This file captures the full set of changes currently in the working tree.
 - Auth change warnings now show the account plan type (e.g., Plus/Team/Free/Pro) instead of the generic ChatGPT label.
 - Rate-limit state and polling are refreshed after auth changes so the header reflects the new account.
 - That post-task auth refresh also resets cached rate-limit warning/prompt state for the new auth snapshot, so stale usage-limit/UI state from the previous auth context does not keep re-triggering after the reload.
+- The TUI now supports `[tui].usage_limit_resume_prompt` for the synthetic recovery user turn sent after `UsageLimitExceeded`. If the field is unset, Codext uses the built-in default recovery prompt; if the field is set to an empty string, Codext disables the automatic recovery turn.
+- When a turn hits `UsageLimitExceeded`, the TUI now queues that synthetic recovery turn ahead of other queued user input. If an `auth.json` reload is also pending, the reload still runs first, and only then does Codext submit the recovery turn before draining later queued inputs.
+
+## Approval fallback when auto-review is unavailable
+
+- When automatic approval review times out or fails internally (for example, the reviewer hits a usage limit), sandbox approval requests now fall back to an explicit user approval prompt instead of stopping at a hard auto-review denial.
+- The TUI no longer renders a misleading `Request denied ...` history line for those reviewer-failure cases; the warning remains visible and the manual approval prompt follows.
 
 ## Collaboration modes and config overrides
 

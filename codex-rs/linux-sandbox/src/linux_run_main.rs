@@ -4,6 +4,7 @@ use std::fmt;
 use std::fs::File;
 use std::io::Read;
 use std::os::fd::FromRawFd;
+use std::os::unix::process::ExitStatusExt;
 use std::path::Path;
 use std::path::PathBuf;
 
@@ -436,7 +437,7 @@ fn run_bwrap_with_proc_fallback(
         options,
     );
     apply_inner_command_argv0(&mut bwrap_args.args);
-    exec_bwrap(bwrap_args.args, bwrap_args.preserved_files);
+    run_bwrap_in_child_and_exit(bwrap_args);
 }
 
 fn bwrap_network_mode(
@@ -473,6 +474,7 @@ fn build_bwrap_argv(
     crate::bwrap::BwrapArgs {
         args: argv,
         preserved_files: bwrap_args.preserved_files,
+        cleanup_paths: bwrap_args.cleanup_paths,
     }
 }
 
@@ -583,6 +585,12 @@ fn run_bwrap_in_child_capture_stderr(bwrap_args: crate::bwrap::BwrapArgs) -> Str
     let read_fd = pipe_fds[0];
     let write_fd = pipe_fds[1];
 
+    let crate::bwrap::BwrapArgs {
+        args,
+        preserved_files,
+        cleanup_paths,
+    } = bwrap_args;
+
     let pid = unsafe { libc::fork() };
     if pid < 0 {
         let err = std::io::Error::last_os_error();
@@ -600,7 +608,7 @@ fn run_bwrap_in_child_capture_stderr(bwrap_args: crate::bwrap::BwrapArgs) -> Str
             close_fd_or_panic(write_fd, "close write end in bubblewrap child");
         }
 
-        exec_bwrap(bwrap_args.args, bwrap_args.preserved_files);
+        exec_bwrap(args, preserved_files);
     }
 
     // Parent: close the write end and read stderr while the child runs.
@@ -620,8 +628,62 @@ fn run_bwrap_in_child_capture_stderr(bwrap_args: crate::bwrap::BwrapArgs) -> Str
         let err = std::io::Error::last_os_error();
         panic!("waitpid failed for bubblewrap child: {err}");
     }
+    cleanup_empty_bwrap_blockers(&cleanup_paths);
 
     String::from_utf8_lossy(&stderr_bytes).into_owned()
+}
+
+fn run_bwrap_in_child_and_exit(bwrap_args: crate::bwrap::BwrapArgs) -> ! {
+    let crate::bwrap::BwrapArgs {
+        args,
+        preserved_files,
+        cleanup_paths,
+    } = bwrap_args;
+
+    let pid = unsafe { libc::fork() };
+    if pid < 0 {
+        let err = std::io::Error::last_os_error();
+        panic!("failed to fork for bubblewrap: {err}");
+    }
+
+    if pid == 0 {
+        exec_bwrap(args, preserved_files);
+    }
+
+    let mut status: libc::c_int = 0;
+    let wait_res = unsafe { libc::waitpid(pid, &mut status as *mut libc::c_int, 0) };
+    if wait_res < 0 {
+        let err = std::io::Error::last_os_error();
+        panic!("waitpid failed for bubblewrap child: {err}");
+    }
+    cleanup_empty_bwrap_blockers(&cleanup_paths);
+    exit_with_wait_status(status);
+}
+
+fn cleanup_empty_bwrap_blockers(paths: &[PathBuf]) {
+    for path in paths {
+        // bubblewrap can auto-create missing bind targets on the host before it
+        // mounts the blocker, so remove only the empty regular-file artifacts
+        // we recorded during argv construction.
+        let Ok(metadata) = std::fs::symlink_metadata(path) else {
+            continue;
+        };
+        if !metadata.file_type().is_file() || metadata.len() != 0 {
+            continue;
+        }
+        let _ = std::fs::remove_file(path);
+    }
+}
+
+fn exit_with_wait_status(status: libc::c_int) -> ! {
+    let status = std::process::ExitStatus::from_raw(status);
+    if let Some(code) = status.code() {
+        std::process::exit(code);
+    }
+    if let Some(signal) = status.signal() {
+        std::process::exit(128 + signal);
+    }
+    std::process::exit(1);
 }
 
 /// Close an owned file descriptor and panic with context on failure.

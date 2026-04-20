@@ -1971,6 +1971,11 @@
           "default": null,
           "description": "Syntax highlighting theme name (kebab-case).\n\nWhen set, overrides automatic light/dark theme detection. Use `/theme` in the TUI or see `$CODEX_HOME/themes` for custom themes.",
           "type": "string"
+        },
+        "usage_limit_resume_prompt": {
+          "default": null,
+          "description": "Optional synthetic user-turn prompt injected after a turn fails with `UsageLimitExceeded`.\n\nWhen unset, Codex uses the built-in default recovery prompt. When set to an empty string, Codex disables this automatic recovery turn.",
+          "type": "string"
         }
       },
       "type": "object"

@@ -400,6 +400,8 @@ use unicode_segmentation::UnicodeSegmentation;
 const USER_SHELL_COMMAND_HELP_TITLE: &str = "Prefix a command with ! to run it locally";
 const USER_SHELL_COMMAND_HELP_HINT: &str = "Example: !ls";
 const DEFAULT_OPENAI_BASE_URL: &str = "https://api.openai.com/v1";
+const DEFAULT_USAGE_LIMIT_RESUME_PROMPT: &str =
+    "The previous turn stopped because the active account hit a usage limit. Any pending auth reload has already been applied. Please continue the previous coding task from where it stopped, and use apply_patch for any required file edits.";
 const DEFAULT_STATUS_LINE_ITEMS: [&str; 5] = [
     "model-with-reasoning",
     "current-dir",
@@ -877,6 +879,10 @@ pub(crate) struct ChatWidget {
     // When auth.json changes mid-task, keep only the earliest pending reload attempt and
     // re-dispatch it once the task indicator returns to idle.
     pending_auth_reload_attempt: Option<u8>,
+    // If a turn hits a usage limit, queue this synthetic follow-up user turn
+    // ahead of other queued user input. When auth reload is pending, dispatch
+    // waits until reload completes.
+    pending_usage_limit_resume_turn: Option<UserMessage>,
     suppress_queue_autosend: bool,
     thread_id: Option<ThreadId>,
     last_turn_id: Option<String>,
@@ -1081,6 +1087,7 @@ pub(crate) struct ThreadInputState {
     pending_steers: VecDeque<UserMessage>,
     rejected_steers_queue: VecDeque<UserMessage>,
     queued_user_messages: VecDeque<UserMessage>,
+    pending_usage_limit_resume_turn: Option<UserMessage>,
     current_collaboration_mode: CollaborationMode,
     active_collaboration_mask: Option<CollaborationModeMask>,
     task_running: bool,
@@ -2449,7 +2456,11 @@ impl ChatWidget {
         let had_pending_steers = !self.pending_steers.is_empty();
         self.refresh_pending_input_preview();
 
-        if !from_replay && !self.has_queued_follow_up_messages() && !had_pending_steers {
+        if !from_replay
+            && !self.has_queued_follow_up_messages()
+            && !had_pending_steers
+            && self.pending_usage_limit_resume_turn.is_none()
+        {
             self.maybe_prompt_plan_implementation();
         }
         // Keep this flag for replayed completion events so a subsequent live TurnComplete can
@@ -2865,6 +2876,23 @@ impl ChatWidget {
         );
     }
 
+    fn usage_limit_resume_prompt(&self) -> Option<&str> {
+        match self.config.tui_usage_limit_resume_prompt.as_deref() {
+            Some("") => None,
+            Some(prompt) => Some(prompt),
+            None => Some(DEFAULT_USAGE_LIMIT_RESUME_PROMPT),
+        }
+    }
+
+    fn on_usage_limit_error(&mut self, message: String) {
+        if self.pending_usage_limit_resume_turn.is_none()
+            && let Some(prompt) = self.usage_limit_resume_prompt()
+        {
+            self.pending_usage_limit_resume_turn = Some(UserMessage::from(prompt));
+        }
+        self.on_error(message);
+    }
+
     pub(crate) fn on_git_status_update(&mut self, summary: Option<GitStatusSummary>) {
         if self.git_status == summary {
             return;
@@ -2938,9 +2966,8 @@ impl ChatWidget {
         {
             match info {
                 RateLimitErrorKind::ServerOverloaded => self.on_server_overloaded_error(message),
-                RateLimitErrorKind::UsageLimit | RateLimitErrorKind::Generic => {
-                    self.on_error(message)
-                }
+                RateLimitErrorKind::UsageLimit => self.on_usage_limit_error(message),
+                RateLimitErrorKind::Generic => self.on_error(message),
             }
         } else {
             self.on_error(message);
@@ -3310,6 +3337,7 @@ impl ChatWidget {
                 .collect(),
             rejected_steers_queue: self.rejected_steers_queue.clone(),
             queued_user_messages: self.queued_user_messages.clone(),
+            pending_usage_limit_resume_turn: self.pending_usage_limit_resume_turn.clone(),
             current_collaboration_mode: self.current_collaboration_mode.clone(),
             active_collaboration_mask: self.active_collaboration_mask.clone(),
             task_running: self.bottom_pane.is_task_running(),
@@ -3364,10 +3392,12 @@ impl ChatWidget {
                 .collect();
             self.rejected_steers_queue = input_state.rejected_steers_queue;
             self.queued_user_messages = input_state.queued_user_messages;
+            self.pending_usage_limit_resume_turn = input_state.pending_usage_limit_resume_turn;
         } else {
             self.agent_turn_running = false;
             self.pending_steers.clear();
             self.rejected_steers_queue.clear();
+            self.pending_usage_limit_resume_turn = None;
             self.set_remote_image_urls(Vec::new());
             self.bottom_pane.set_composer_text_with_mention_bindings(
                 String::new(),
@@ -3577,6 +3607,12 @@ impl ChatWidget {
         }
 
         if ev.status != GuardianAssessmentStatus::Denied {
+            return;
+        }
+        if ev.rationale.as_deref().is_some_and(|rationale| {
+            rationale.starts_with("Automatic approval review failed:")
+        }) {
+            self.request_redraw();
             return;
         }
         let cell = if let Some(command) = guardian_command(&ev.action) {
@@ -4975,6 +5011,7 @@ impl ChatWidget {
             retry_status_header: None,
             pending_status_indicator_restore: false,
             pending_auth_reload_attempt: None,
+            pending_usage_limit_resume_turn: None,
             suppress_queue_autosend: false,
             thread_id: None,
             last_turn_id: None,
@@ -6803,9 +6840,8 @@ impl ChatWidget {
                         RateLimitErrorKind::ServerOverloaded => {
                             self.on_server_overloaded_error(message)
                         }
-                        RateLimitErrorKind::UsageLimit | RateLimitErrorKind::Generic => {
-                            self.on_error(message)
-                        }
+                        RateLimitErrorKind::UsageLimit => self.on_usage_limit_error(message),
+                        RateLimitErrorKind::Generic => self.on_error(message),
                     }
                 } else {
                     self.on_error(message);
@@ -7157,12 +7193,23 @@ impl ChatWidget {
         }
     }
 
-    // If idle and there are queued inputs, submit exactly one to start the next turn.
+    // If idle, dispatch the next synthetic recovery turn or queued user input.
     pub(crate) fn maybe_send_next_queued_input(&mut self) {
         if self.suppress_queue_autosend {
             return;
         }
         if self.bottom_pane.is_task_running() {
+            return;
+        }
+        if self.pending_auth_reload_attempt.is_some() {
+            return;
+        }
+        if let Some(user_message) = self.pending_usage_limit_resume_turn.take() {
+            self.reasoning_buffer.clear();
+            self.full_reasoning_buffer.clear();
+            self.set_status_header(String::from("Working"));
+            self.submit_user_message(user_message);
+            self.refresh_pending_input_preview();
             return;
         }
         if let Some(user_message) = self.pop_next_queued_user_message() {

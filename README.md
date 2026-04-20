@@ -42,7 +42,19 @@ cargo run --bin codex
   model = "gpt-5.4"
   ```
 
-* TUI watches `auth.json` for external login changes and reloads auth automatically, with a warning on account switch. This works well with [codex-auth](https://github.com/Loongphy/codex-auth) when you refresh or switch login state outside the TUI.
+* TUI watches `auth.json` for external login changes and reloads auth automatically after writes settle. If a task is still running, the reload waits until the turn is idle, then refreshes rate limits and warns on account switch. When a turn stops on a usage limit, Codext can inject a synthetic user turn before other queued follow-ups; if an auth reload is pending, that reload is applied first. This works well with [codex-auth](https://github.com/Loongphy/codex-auth) when you refresh or switch login state outside the TUI.
+* The synthetic recovery turn text is configurable with `[tui].usage_limit_resume_prompt`. Leave it unset to use the built-in default, or set it to `""` to disable the automatic recovery turn entirely. The built-in default is:
+
+  ```text
+  The previous turn stopped because the active account hit a usage limit. Any pending auth reload has already been applied. Please continue the previous coding task from where it stopped, and use apply_patch for any required file edits.
+  ```
+
+  Example:
+
+  ```toml
+  [tui]
+  usage_limit_resume_prompt = ""
+  ```
 * AGENTS.md and project-doc instructions are refreshed on each new user turn, and Codex shows an explicit warning when a refresh is applied.
 
 ## Project Goals

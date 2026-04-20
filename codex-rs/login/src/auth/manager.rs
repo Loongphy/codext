@@ -1154,8 +1154,11 @@ impl UnauthorizedRecovery {
 /// consistent snapshot.
 ///
 /// External modifications to `auth.json` will NOT be observed until
-/// `reload()` is called explicitly. This matches the design goal of avoiding
-/// different parts of the program seeing inconsistent auth data mid‑run.
+/// `reload()` is called explicitly. The TUI auth watcher handles this by
+/// debouncing file changes and reloading after the active turn becomes idle,
+/// which avoids partial reads and mid-task auth swaps.
+/// This matches the design goal of avoiding different parts of the program
+/// seeing inconsistent auth data mid-run.
 pub struct AuthManager {
     codex_home: PathBuf,
     inner: RwLock<CachedAuth>,
