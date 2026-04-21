@@ -29,6 +29,7 @@ use codex_config::config_toml::validate_model_providers;
 use codex_config::profile_toml::ConfigProfile;
 use codex_config::types::ApprovalsReviewer;
 use codex_config::types::AuthCredentialsStoreMode;
+use codex_config::types::CollaborationModeOverrides;
 use codex_config::types::DEFAULT_OTEL_ENVIRONMENT;
 use codex_config::types::History;
 use codex_config::types::McpServerConfig;
@@ -364,6 +365,13 @@ pub struct Config {
 
     /// Syntax highlighting theme override (kebab-case name).
     pub tui_theme: Option<String>,
+
+    /// Synthetic user-turn prompt injected after a `UsageLimitExceeded` turn
+    /// failure.
+    ///
+    /// `None` uses the built-in default prompt. `Some("")` disables the
+    /// automatic recovery turn.
+    pub tui_usage_limit_resume_prompt: Option<String>,
 
     /// The absolute directory that should be treated as the current working
     /// directory for the session. All relative paths inside the business-logic
@@ -779,6 +787,14 @@ impl Config {
             configured_mcp_servers,
             plugin_capability_summaries: loaded_plugins.capability_summaries().to_vec(),
         }
+    }
+
+    pub fn collaboration_mode_overrides(&self) -> Option<CollaborationModeOverrides> {
+        self.config_layer_stack
+            .effective_config()
+            .try_into()
+            .ok()
+            .and_then(|config: ConfigToml| config.collaboration_modes)
     }
 
     /// This is the preferred way to create an instance of [Config].
@@ -2312,6 +2328,10 @@ impl Config {
             tui_status_line: cfg.tui.as_ref().and_then(|t| t.status_line.clone()),
             tui_terminal_title: cfg.tui.as_ref().and_then(|t| t.terminal_title.clone()),
             tui_theme: cfg.tui.as_ref().and_then(|t| t.theme.clone()),
+            tui_usage_limit_resume_prompt: cfg
+                .tui
+                .as_ref()
+                .and_then(|t| t.usage_limit_resume_prompt.clone()),
             otel: {
                 let t: OtelConfigToml = cfg.otel.unwrap_or_default();
                 let log_user_prompt = t.log_user_prompt.unwrap_or(false);

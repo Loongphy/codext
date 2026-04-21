@@ -33,6 +33,7 @@ use crate::bottom_pane::ApprovalRequest;
 use crate::bottom_pane::StatusLineItem;
 use crate::bottom_pane::TerminalTitleItem;
 use crate::chatwidget::UserMessage;
+use crate::git_status::GitStatusSummary;
 use codex_config::types::ApprovalsReviewer;
 use codex_features::Feature;
 use codex_plugin::PluginCapabilitySummary;
@@ -89,11 +90,14 @@ pub(crate) struct ConnectorsSnapshot {
 /// only updates the cached snapshots (no status card to finalize). A
 /// `StatusCommand` is tied to a specific `/status` invocation and must call
 /// `finish_status_rate_limit_refresh` when done so the card stops showing a
-/// "refreshing" state.
+/// "refreshing" state. A `BackgroundPoll` is the periodic refresh used by the
+/// status header.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum RateLimitRefreshOrigin {
     /// Eagerly fetched after bootstrap so the first `/status` already has data.
     StartupPrefetch,
+    /// Periodic background refresh used by the status header.
+    BackgroundPoll,
     /// User-initiated via `/status`; the `request_id` correlates with the
     /// status card that should be updated when the fetch completes.
     StatusCommand { request_id: u64 },
@@ -181,6 +185,14 @@ pub(crate) enum AppEvent {
         matches: Vec<FileMatch>,
     },
 
+    /// Auth file change detected; reload auth state.
+    AuthFileChanged,
+
+    /// Retry auth reload after a delay; attempt starts at 2.
+    AuthFileChangedRetry {
+        attempt: u8,
+    },
+
     /// Refresh account rate limits in the background.
     RefreshRateLimits {
         origin: RateLimitRefreshOrigin,
@@ -190,6 +202,12 @@ pub(crate) enum AppEvent {
     RateLimitsLoaded {
         origin: RateLimitRefreshOrigin,
         result: Result<Vec<RateLimitSnapshot>, String>,
+    },
+
+    /// Result of refreshing git status information for a specific cwd.
+    GitStatusFetched {
+        cwd: AbsolutePathBuf,
+        summary: Option<GitStatusSummary>,
     },
 
     /// Send a user-confirmed request to notify the workspace owner.

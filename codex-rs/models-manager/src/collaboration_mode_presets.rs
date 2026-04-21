@@ -1,3 +1,5 @@
+use codex_config::types::CollaborationModeOverride;
+use codex_config::types::CollaborationModeOverrides;
 use codex_collaboration_mode_templates::DEFAULT as COLLABORATION_MODE_DEFAULT;
 use codex_collaboration_mode_templates::PLAN as COLLABORATION_MODE_PLAN;
 use codex_protocol::config_types::CollaborationModeMask;
@@ -30,6 +32,37 @@ pub fn builtin_collaboration_mode_presets(
     collaboration_modes_config: CollaborationModesConfig,
 ) -> Vec<CollaborationModeMask> {
     vec![plan_preset(), default_preset(collaboration_modes_config)]
+}
+
+pub fn collaboration_mode_presets_with_overrides(
+    base_model: &str,
+    base_effort: Option<ReasoningEffort>,
+    overrides: Option<&CollaborationModeOverrides>,
+) -> Vec<CollaborationModeMask> {
+    collaboration_mode_presets_with_overrides_and_config(
+        base_model,
+        base_effort,
+        overrides,
+        CollaborationModesConfig::default(),
+    )
+}
+
+pub fn collaboration_mode_presets_with_overrides_and_config(
+    base_model: &str,
+    base_effort: Option<ReasoningEffort>,
+    overrides: Option<&CollaborationModeOverrides>,
+    collaboration_modes_config: CollaborationModesConfig,
+) -> Vec<CollaborationModeMask> {
+    let base_model = base_model.trim();
+    let base_model = (!base_model.is_empty()).then_some(base_model);
+
+    builtin_collaboration_mode_presets(collaboration_modes_config)
+        .into_iter()
+        .map(|preset| {
+            let override_for_mode = override_for_mode(overrides, &preset);
+            apply_overrides(preset, base_model, base_effort, override_for_mode)
+        })
+        .collect()
 }
 
 fn plan_preset() -> CollaborationModeMask {
@@ -108,6 +141,42 @@ fn asking_questions_guidance_message(default_mode_request_user_input: bool) -> S
     } else {
         "In Default mode, strongly prefer making reasonable assumptions and executing the user's request rather than stopping to ask questions. If you absolutely must ask a question because the answer cannot be discovered from local context and a reasonable assumption would be risky, ask the user directly with a concise plain-text question. Never write a multiple choice question as a textual assistant message.".to_string()
     }
+}
+
+fn override_for_mode<'a>(
+    overrides: Option<&'a CollaborationModeOverrides>,
+    mode: &CollaborationModeMask,
+) -> Option<&'a CollaborationModeOverride> {
+    let overrides = overrides?;
+    match mode.mode {
+        Some(ModeKind::Plan) => overrides.plan.as_ref(),
+        Some(ModeKind::Default) => overrides.code.as_ref(),
+        Some(ModeKind::PairProgramming | ModeKind::Execute) | None => None,
+    }
+}
+
+fn apply_overrides(
+    mut preset: CollaborationModeMask,
+    base_model: Option<&str>,
+    base_effort: Option<ReasoningEffort>,
+    override_for_mode: Option<&CollaborationModeOverride>,
+) -> CollaborationModeMask {
+    let override_model = override_for_mode.and_then(|value| value.model.as_deref());
+    let override_effort = override_for_mode.and_then(|value| value.reasoning_effort);
+
+    preset.model = override_model
+        .or(base_model)
+        .map(std::borrow::ToOwned::to_owned);
+    preset.reasoning_effort = Some(Some(
+        override_effort.unwrap_or_else(|| {
+            preset
+                .reasoning_effort
+                .and_then(|value| value)
+                .or(base_effort)
+                .unwrap_or(ReasoningEffort::Medium)
+        }),
+    ));
+    preset
 }
 
 #[cfg(test)]

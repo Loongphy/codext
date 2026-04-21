@@ -1126,6 +1126,57 @@ impl Session {
         }
     }
 
+    async fn maybe_refresh_project_docs_for_user_turn(
+        &self,
+        sub_id: &str,
+        requested_cwd: Option<&PathBuf>,
+    ) {
+        let Some(environment) = self.services.environment.as_deref() else {
+            return;
+        };
+
+        let (config, previous_user_instructions) = {
+            let state = self.state.lock().await;
+            let mut config = (*state.session_configuration.original_config_do_not_use).clone();
+            let session_cwd = state.session_configuration.cwd.clone();
+            config.cwd = requested_cwd
+                .map(|cwd| {
+                    AbsolutePathBuf::relative_to_current_dir(normalize_for_native_workdir(
+                        cwd.as_path(),
+                    ))
+                    .unwrap_or_else(|err| {
+                        warn!("failed to normalize project docs refresh cwd: {cwd:?}: {err}");
+                        session_cwd.clone()
+                    })
+                })
+                .unwrap_or_else(|| session_cwd.clone());
+            (config, state.session_configuration.user_instructions.clone())
+        };
+
+        let user_instructions = AgentsMdManager::new(&config)
+            .user_instructions(Some(environment))
+            .await;
+        if user_instructions == previous_user_instructions {
+            return;
+        }
+
+        let mut state = self.state.lock().await;
+        if state.session_configuration.user_instructions == user_instructions {
+            return;
+        }
+        state.session_configuration.user_instructions = user_instructions;
+        drop(state);
+
+        self.send_event_raw(Event {
+            id: sub_id.to_string(),
+            msg: EventMsg::Warning(WarningEvent {
+                message: "AGENTS.md instructions changed. Reloaded and applied starting this turn."
+                    .to_string(),
+            }),
+        })
+        .await;
+    }
+
     // Merges connector IDs into the session-level explicit connector selection.
     pub(crate) async fn merge_connector_selection(
         &self,
