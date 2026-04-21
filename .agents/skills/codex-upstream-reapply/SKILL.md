@@ -43,7 +43,7 @@ description: 'Reapply a fork or secondary-development branch onto the latest sta
 - 禁止运行任何会检查/编译测试目标，或可能因此倒逼你修改测试代码的命令；包括但不限于 `cargo clippy --tests`、`cargo clippy --fix --tests`、`just fix`、`cargo insta ...`。
 - 除非用户明确要求，不运行 `cargo fmt` / `just fmt` / `cargo clippy` / `cargo clippy --fix` / `just fix` 这类格式化、lint、自动修正命令；本 skill 默认只做必要的代码实现与 build 验证。
 - 如果仓库通用 AGENTS/README/开发规范要求在大改后额外跑 `fmt` / `clippy` / `fix` / `test`，在本 skill 下默认跳过这些步骤，优先遵守“不改测试代码、只做 build 验证”的约束；如有例外必须先得到用户明确许可。
-- 在 `NEW_BRANCH` 上保留并更新根目录 `AGENTS.md`：明确说明当前正在进行的是一次 upstream reapply 工作，禁止编写/修改测试代码，禁止执行任何 lint / format / auto-fix 命令，并注明本次验收标准以本 skill 的 Acceptance criteria 为准。
+- 在 `NEW_BRANCH` 上保留并更新根目录 `AGENTS.md`：明确说明当前正在进行的是一次 upstream reapply 工作，禁止编写/修改测试代码，禁止执行任何 lint / format / auto-fix 命令，并注明本次验收标准以本 skill 的 Acceptance criteria 为准。使用 `start_from_tag.sh` 时，这段临时 guardrails 应由脚本自动刷新；若你没走脚本，则必须手动补上。
 - 对于用户可见的 TUI 功能，如果 `codex-rs/tui` 与 `codex-rs/tui_app_server` 都存在对应的平行实现，则必须同步落地两边；不能只改其中一边就判定该需求已完成，除非 upstream 已明确删除其一，或你能在当前 tag 的代码里给出清晰的“不需要同步”的理由。
 - 如果 `CHANGED.md` 记录的是这类共享 TUI 行为，文案应写成“用户可见行为要求”，并在需要时明确适用于 `tui` 与 `tui_app_server`，避免写成只对应某一个实现细节的说明。
 - 在 `codex-rs` 目录下执行 `cargo build -p codex-cli`，确认能正常启动运行。
@@ -113,15 +113,16 @@ bash .agents/skills/codex-upstream-reapply/scripts/start_from_tag.sh \
 
 - `OLD_BRANCH` 相对 `TAG` 的 `merge-base`（作为改动基线）
 - 变更文件清单、diff patch、commit 列表
+- `coverage-checklist.md`：把旧分支里每个变更路径都列成 checklist，并标注它是“脚本自动带过去”还是“必须手动重实现”
 -（默认）复制所有“变更过的 Markdown 意图文档”的旧版内容到 bundle 里
 -（可选）用 `--copy-all` 复制所有变更文件的旧版内容（用于离线阅读）
-并且会固定复制 `OLD_BRANCH` 的 `README.md`、`CHANGED.md`、`.agents/skills/` 到 `NEW_BRANCH`；对于 npm / release / CI 相关改动，则会按 `OLD_BRANCH` 相对基线 tag 的 git changes 自动搬运，包括删除。只要 `OLD_BRANCH` 带有 `references/npm-release.md` 对应的 skill 规则，就必须执行 npm release 文档里定义的强制动作，而不是只把它当成“默认原则”。
+并且会固定复制 `OLD_BRANCH` 的 `AGENTS.md`、`README.md`、`CHANGED.md`、`.agents/skills/` 到 `NEW_BRANCH`；复制后脚本还会刷新 `AGENTS.md` 里的临时 reapply guardrails，并自动把 `README.md` 的 `Codex build` 徽章改成 `TAG` 对应的 `<tag>-<short_commit>`。对于 npm / release / CI 相关改动，则会按 `OLD_BRANCH` 相对基线 tag 的 git changes 自动搬运，包括删除。只要 `OLD_BRANCH` 带有 `references/npm-release.md` 对应的 skill 规则，就必须执行 npm release 文档里定义的强制动作，而不是只把它当成“默认原则”。
 
 如果分支上包含 codext npm / release 相关改动，必须先看 `references/npm-release.md`。这份文档明确要求：在 `NEW_BRANCH` 上用 `OLD_BRANCH` 的 `rust-release.yml` 覆盖当前 tag 分支内容，删除其他 workflow，并直接复制 `.github/scripts/install-musl-build-tools.sh`、`.github/scripts/rusty_v8_bazel.py`、`codex-cli/package.json`、`codex-cli/bin/codex.js`、`codex-cli/bin/rg`、`codex-cli/scripts/build_npm_package.py`、`codex-cli/scripts/install_native_deps.py`；这些是必做项，不是建议。只有这些动作完成后，才允许评估上游 / 新 tag 额外新增或改动的 CI 是否要合并或忽略。
 
 如果这套 codext npm / release 规则生效，所有用户可见文案、提示、tooltips、README/技能文档里凡是引用安装后命令名的地方，也必须同步使用 `codext`。例如恢复会话提示应写成 `codext resume <session>`，不要继续保留 `codex resume ...` 这类上游命令名。
 
-如果这一步复制了 `README.md` 到 `NEW_BRANCH`，则紧接着必须更新 `NEW_BRANCH` 根目录 `AGENTS.md`，补充一段当前任务说明，至少包含这些信息：
+如果你没有使用 `start_from_tag.sh`，而是手动创建了 `NEW_BRANCH`，则紧接着必须更新 `NEW_BRANCH` 根目录 `AGENTS.md`，补充一段当前任务说明，至少包含这些信息：
 
 - 当前正在进行 `TAG` 对应的 upstream reapply / re-implementation 工作。
 - 本次只允许修改实现代码与必要文档，不写、不改任何测试代码或 snapshot。
@@ -149,6 +150,7 @@ bash .agents/skills/codex-upstream-reapply/scripts/start_from_tag.sh \
 - 对 TUI 相关需求，不要默认只看 `codex-rs/tui`。先确认当前 tag 下 `codex-rs/tui` 与 `codex-rs/tui_app_server` 是否都存在对应 surface，以及 `codex` 默认 interactive 入口实际会分发到哪一条链路，再决定需要同步重实现的范围。
 - 若 upstream 在新 `TAG` 中已经重构相关模块，应优先适配当前 codebase 的结构，在当前实现方式下重新落地相同需求，而不是强行维持旧文件组织或旧接口。
 - 最终目标是“在当前 codebase 上实现同样的需求”，不是“让新分支长得像旧分支的提交历史”。
+- `coverage-checklist.md` 是“当前分支有哪些变更必须被处理”的总清单；不要只凭记忆挑几处改。对每个路径，都要在 `NEW_BRANCH` 上做到“已自动带过 / 已手动重实现 / 明确决定不需要并记录原因”三选一。
 
 常用命令（在 `NEW_BRANCH` 上也能直接读取旧分支文件）：
 
@@ -166,6 +168,7 @@ git diff BASE_COMMIT..OLD_BRANCH -- path/to/file
 ### 5) Re-implement on NEW_BRANCH
 
 - 按“需求点/模块”拆分小 commit 逐步实现。
+- 以 `coverage-checklist.md` 为 per-file 兜底清单，避免遗漏当前分支的任何改动。
 - 以 `CHANGED.md` 中记录的变动为主线逐项核对，确认每项需求都在当前 codebase 上重新实现。
 - 让意图文档与实现保持一致（必要时更新 Markdown）。
 - 不跑测试；不要生成或更新任何测试文件/快照文件。

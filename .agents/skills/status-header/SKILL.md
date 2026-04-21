@@ -101,3 +101,10 @@ exact code.
   or bootstrap-fed data is acceptable if it keeps the header equivalently fresh.
 - In this fork's app-server-backed `codex-rs/tui`, keep ChatGPT rate-limit snapshots fresh with a
   15-second background refresh cadence and redraw the UI after each successful snapshot update.
+- Treat the directory segment as the session/thread `cwd`, not the transient `workdir` of an
+  individual tool call. Creating or using another git worktree does not change the header by
+  itself; the header switches only when the session `cwd` changes.
+- When header git state is refreshed asynchronously, key it by the same `cwd` as the directory
+  segment. If the session `cwd` changes, retarget polling/refresh to the new `cwd`, clear stale git
+  state, and ignore late results from the previous `cwd` so an old worktree cannot overwrite the
+  new header context.

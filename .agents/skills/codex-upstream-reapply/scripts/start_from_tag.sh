@@ -136,6 +136,112 @@ copy_entry_from_old_branch() {
   esac
 }
 
+strip_existing_reapply_guardrails() {
+  local path="$1"
+
+  awk '
+    $0 == "<!-- codex-upstream-reapply:start -->" {
+      skip_marked = 1
+      next
+    }
+    $0 == "<!-- codex-upstream-reapply:end -->" {
+      skip_marked = 0
+      next
+    }
+    skip_marked {
+      next
+    }
+    /^## Temporary Reapply Guardrails \(`/ {
+      skip_legacy = 1
+      next
+    }
+    skip_legacy && /^## / {
+      skip_legacy = 0
+    }
+    skip_legacy {
+      next
+    }
+    {
+      print
+    }
+  ' "${path}"
+}
+
+refresh_reapply_guardrails() {
+  local tag_name="$1"
+  local agents_path="AGENTS.md"
+  local tmp_file=""
+  local block=""
+  local first_line=""
+
+  block="$(cat <<EOF
+<!-- codex-upstream-reapply:start -->
+## Temporary Reapply Guardrails (\`${tag_name}\`)
+
+- Current work on this branch is an upstream reapply / re-implementation for \`${tag_name}\`.
+- Only implementation code and necessary docs may change for this task. Do not add or modify tests or snapshot files.
+- Do not run lint / format / auto-fix commands for this reapply, including \`cargo fmt\`, \`just fmt\`, \`cargo clippy\`, \`cargo clippy --fix\`, and \`just fix\`.
+- Acceptance for this reapply is limited to the \`codex-upstream-reapply\` skill criteria, including \`cd codex-rs && cargo build -p codex-cli\` and \`cd codex-rs && cargo build -p codex-cli --release\`.
+<!-- codex-upstream-reapply:end -->
+EOF
+)"
+
+  tmp_file="$(mktemp)"
+  if [[ -f "${agents_path}" ]]; then
+    strip_existing_reapply_guardrails "${agents_path}" > "${tmp_file}"
+  else
+    : > "${tmp_file}"
+  fi
+
+  if [[ -s "${tmp_file}" ]]; then
+    IFS= read -r first_line < "${tmp_file}" || true
+    if [[ "${first_line}" == \#* ]]; then
+      {
+        printf '%s\n\n%s\n\n' "${first_line}" "${block}"
+        tail -n +2 "${tmp_file}"
+      } > "${agents_path}"
+    else
+      {
+        printf '%s\n\n' "${block}"
+        cat "${tmp_file}"
+      } > "${agents_path}"
+    fi
+  else
+    {
+      printf '# Rust/codex-rs\n\n%s\n' "${block}"
+    } > "${agents_path}"
+  fi
+
+  rm -f "${tmp_file}"
+  git add "${agents_path}"
+  echo "[INFO] Refreshed AGENTS.md reapply guardrails for ${tag_name}"
+}
+
+update_readme_build_badge() {
+  local tag_name="$1"
+  local readme_path="README.md"
+  local tmp_file=""
+  local short_commit=""
+  local badge_value=""
+
+  [[ -f "${readme_path}" ]] || return 0
+  short_commit="$(git rev-parse --short "${tag_name}^{commit}")"
+  badge_value="${tag_name}-${short_commit}"
+  tmp_file="$(mktemp)"
+
+  perl -0pe 's|!\[Codex build\]\(https://img\.shields\.io/static/v1\?label=codex%20build&message=[^&)]*&color=2ea043\)|![Codex build](https://img.shields.io/static/v1?label=codex%20build&message='"${badge_value}"'&color=2ea043)|g' \
+    "${readme_path}" > "${tmp_file}"
+
+  if cmp -s "${readme_path}" "${tmp_file}"; then
+    rm -f "${tmp_file}"
+    return 0
+  fi
+
+  mv "${tmp_file}" "${readme_path}"
+  git add "${readme_path}"
+  echo "[INFO] Updated README.md build badge to ${badge_value}"
+}
+
 path_exists_in_ref() {
   local ref="$1"
   local path="$2"
@@ -257,6 +363,7 @@ resolve_carry_over_base_commit() {
 }
 
 readonly REAPPLY_COPY_PATHS=(
+  "AGENTS.md"
   "README.md"
   "CHANGED.md"
   ".agents/skills"
@@ -460,6 +567,8 @@ echo "[INFO] Copying fixed carry-over files from ${OLD_BRANCH}..."
 for path in "${REAPPLY_COPY_PATHS[@]}"; do
   copy_entry_from_old_branch "${OLD_BRANCH}" "${path}"
 done
+refresh_reapply_guardrails "${tag_name}"
+update_readme_build_badge "${tag_name}"
 
 if has_npm_release_reapply "${OLD_BRANCH}"; then
   apply_required_npm_release_carry_over "${OLD_BRANCH}"

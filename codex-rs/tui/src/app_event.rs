@@ -183,8 +183,11 @@ pub(crate) enum AppEvent {
         result: Result<Vec<RateLimitSnapshot>, String>,
     },
 
-    /// Result of refreshing git status information.
-    GitStatusFetched(Option<GitStatusSummary>),
+    /// Result of refreshing git status information for a specific cwd.
+    GitStatusFetched {
+        cwd: AbsolutePathBuf,
+        summary: Option<GitStatusSummary>,
+    },
 
     /// Result of prefetching connectors.
     ConnectorsLoaded {

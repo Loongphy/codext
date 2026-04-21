@@ -80,6 +80,22 @@ hint_tag_from_history() {
   git describe --tags --abbrev=0 "${1}" 2>/dev/null || true
 }
 
+default_reapply_action_for_path() {
+  local path="$1"
+
+  case "${path}" in
+    AGENTS.md|README.md|CHANGED.md|.agents/skills|.agents/skills/*)
+      printf '%s\n' "auto carry-over by start_from_tag.sh"
+      ;;
+    .github/workflows/rust-release.yml|.github/scripts/install-musl-build-tools.sh|.github/scripts/rusty_v8_bazel.py|codex-cli/package.json|codex-cli/bin/codex.js|codex-cli/bin/rg|codex-cli/scripts/build_npm_package.py|codex-cli/scripts/install_native_deps.py)
+      printf '%s\n' "auto carry-over when npm/release reapply rules are enabled"
+      ;;
+    *)
+      printf '%s\n' "manual re-implementation required"
+      ;;
+  esac
+}
+
 OLD_BRANCH=""
 BASE_REF=""
 OLD_BASE_TAG=""
@@ -244,6 +260,33 @@ git diff --name-status "${base_commit}..${OLD_BRANCH}" > "${OUT_DIR}/changed-fil
 git diff --stat "${base_commit}..${OLD_BRANCH}" > "${OUT_DIR}/diffstat.txt"
 git diff "${base_commit}..${OLD_BRANCH}" > "${OUT_DIR}/diff.patch"
 git log --reverse --oneline "${base_commit}..${OLD_BRANCH}" > "${OUT_DIR}/commits.txt"
+
+{
+  cat <<'EOF'
+# Coverage Checklist
+
+Every path from `changed-files.txt` must be accounted for on `NEW_BRANCH`.
+
+- `auto carry-over by start_from_tag.sh`: the branch bootstrap script copies or refreshes it for you.
+- `auto carry-over when npm/release reapply rules are enabled`: the path is copied or deleted automatically only when the npm/release rules apply.
+- `manual re-implementation required`: you must port the behavior onto the new tag manually, or explicitly decide to drop it with a recorded reason.
+
+Checklist:
+EOF
+  echo
+
+  while IFS=$'\t' read -r status path extra; do
+    [[ -n "${status}" ]] || continue
+
+    if [[ "${status}" == R* || "${status}" == C* ]]; then
+      action="$(default_reapply_action_for_path "${extra}")"
+      printf -- '- [ ] %s %s -> %s — %s\n' "${status}" "${path}" "${extra}" "${action}"
+    else
+      action="$(default_reapply_action_for_path "${path}")"
+      printf -- '- [ ] %s %s — %s\n' "${status}" "${path}" "${action}"
+    fi
+  done < <(git diff --name-status --find-renames "${base_commit}..${OLD_BRANCH}")
+} > "${OUT_DIR}/coverage-checklist.md"
 
 mkdir -p "${OUT_DIR}/old"
 

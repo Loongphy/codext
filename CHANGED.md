@@ -16,6 +16,8 @@ This file captures the full set of changes currently in the working tree.
 
 - Added a status header above the composer in the app-server-backed `codex-rs/tui` surface. It shows model + reasoning effort, current directory, git branch/ahead/behind/changes, and rate-limit remaining/reset time.
 - Git status is collected in the background (15s interval, 2s timeout) and rendered when available.
+- The directory segment represents the session/thread `cwd`, not a one-off tool `workdir`.
+- When the session `cwd` changes (for example after switching into a new worktree), the git-status poller now rebinds to that new `cwd`, clears stale git state, and ignores late results from the previous `cwd`.
 - ChatGPT `5h` / weekly usage-limit snapshots in the TUI now refresh in the background every 15 seconds, so the header and any `/statusline` limit items keep moving while the UI is otherwise idle.
 - `rust-v0.118.0` removed the old `tui_app_server` crate upstream, so the reapply keeps only the surviving TUI path aligned with the status-header skill.
 
@@ -32,6 +34,8 @@ This file captures the full set of changes currently in the working tree.
 - That post-task auth refresh also resets cached rate-limit warning/prompt state for the new auth snapshot, so stale usage-limit/UI state from the previous auth context does not keep re-triggering after the reload.
 - The TUI now supports `[tui].usage_limit_resume_prompt` for the synthetic recovery user turn sent after `UsageLimitExceeded`. If the field is unset, Codext uses the built-in default recovery prompt; if the field is set to an empty string, Codext disables the automatic recovery turn.
 - When a turn hits `UsageLimitExceeded`, the TUI now queues that synthetic recovery turn ahead of other queued user input. If an `auth.json` reload is also pending, the reload still runs first, and only then does Codext submit the recovery turn before draining later queued inputs.
+- After a turn stops on `UsageLimitExceeded`, Codext now keeps that synthetic recovery turn parked until the next `auth.json` reload that actually changes account identity, so switching accounts can continue the interrupted task without a manual resend.
+- If the user manually submits a new message before that auth reload arrives, Codext clears the parked usage-limit recovery turn instead of replaying the stale synthetic prompt later.
 
 ## Approval fallback when auto-review is unavailable
 

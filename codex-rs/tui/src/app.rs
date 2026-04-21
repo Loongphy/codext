@@ -1205,6 +1205,8 @@ impl App {
                             &new_identity,
                         )));
                 }
+                self.chat_widget
+                    .on_auth_reload_completed(old_identity != new_identity);
                 self.chat_widget.maybe_send_next_queued_input();
                 tui.frame_requester().schedule_frame();
             }
@@ -4860,8 +4862,8 @@ impl App {
                     }
                 }
             },
-            AppEvent::GitStatusFetched(summary) => {
-                self.chat_widget.on_git_status_update(summary);
+            AppEvent::GitStatusFetched { cwd, summary } => {
+                self.chat_widget.on_git_status_update(cwd, summary);
             }
             AppEvent::ConnectorsLoaded { result, is_final } => {
                 self.chat_widget.on_connectors_loaded(result, is_final);

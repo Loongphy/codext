@@ -880,9 +880,11 @@ pub(crate) struct ChatWidget {
     // re-dispatch it once the task indicator returns to idle.
     pending_auth_reload_attempt: Option<u8>,
     // If a turn hits a usage limit, queue this synthetic follow-up user turn
-    // ahead of other queued user input. When auth reload is pending, dispatch
-    // waits until reload completes.
+    // ahead of other queued user input.
     pending_usage_limit_resume_turn: Option<UserMessage>,
+    // True while the queued usage-limit recovery turn is waiting for the next
+    // auth reload that changes account identity before auto-dispatch.
+    usage_limit_resume_waiting_for_auth_reload: bool,
     suppress_queue_autosend: bool,
     thread_id: Option<ThreadId>,
     last_turn_id: Option<String>,
@@ -1088,6 +1090,7 @@ pub(crate) struct ThreadInputState {
     rejected_steers_queue: VecDeque<UserMessage>,
     queued_user_messages: VecDeque<UserMessage>,
     pending_usage_limit_resume_turn: Option<UserMessage>,
+    usage_limit_resume_waiting_for_auth_reload: bool,
     current_collaboration_mode: CollaborationMode,
     active_collaboration_mask: Option<CollaborationModeMask>,
     task_running: bool,
@@ -2008,6 +2011,7 @@ impl ChatWidget {
 
     // --- Small event handlers ---
     fn on_session_configured(&mut self, event: codex_protocol::protocol::SessionConfiguredEvent) {
+        let cwd_changed = self.status_line_cwd() != event.cwd.as_path();
         self.last_agent_markdown = None;
         self.saw_copy_source_this_turn = false;
         self.bottom_pane
@@ -2021,6 +2025,10 @@ impl ChatWidget {
         self.current_rollout_path = event.rollout_path.clone();
         self.current_cwd = Some(event.cwd.to_path_buf());
         self.config.cwd = event.cwd.clone();
+        if cwd_changed {
+            self.git_status = None;
+            self.start_git_status_poller();
+        }
         if let Err(err) = self
             .config
             .permissions
@@ -2876,6 +2884,12 @@ impl ChatWidget {
         );
     }
 
+    pub(crate) fn on_auth_reload_completed(&mut self, identity_changed: bool) {
+        if identity_changed && self.pending_usage_limit_resume_turn.is_some() {
+            self.usage_limit_resume_waiting_for_auth_reload = false;
+        }
+    }
+
     fn usage_limit_resume_prompt(&self) -> Option<&str> {
         match self.config.tui_usage_limit_resume_prompt.as_deref() {
             Some("") => None,
@@ -2890,10 +2904,19 @@ impl ChatWidget {
         {
             self.pending_usage_limit_resume_turn = Some(UserMessage::from(prompt));
         }
+        self.usage_limit_resume_waiting_for_auth_reload =
+            self.pending_usage_limit_resume_turn.is_some();
         self.on_error(message);
     }
 
-    pub(crate) fn on_git_status_update(&mut self, summary: Option<GitStatusSummary>) {
+    pub(crate) fn on_git_status_update(
+        &mut self,
+        cwd: AbsolutePathBuf,
+        summary: Option<GitStatusSummary>,
+    ) {
+        if self.status_line_cwd() != cwd.as_path() {
+            return;
+        }
         if self.git_status == summary {
             return;
         }
@@ -3338,6 +3361,8 @@ impl ChatWidget {
             rejected_steers_queue: self.rejected_steers_queue.clone(),
             queued_user_messages: self.queued_user_messages.clone(),
             pending_usage_limit_resume_turn: self.pending_usage_limit_resume_turn.clone(),
+            usage_limit_resume_waiting_for_auth_reload: self
+                .usage_limit_resume_waiting_for_auth_reload,
             current_collaboration_mode: self.current_collaboration_mode.clone(),
             active_collaboration_mask: self.active_collaboration_mask.clone(),
             task_running: self.bottom_pane.is_task_running(),
@@ -3393,11 +3418,14 @@ impl ChatWidget {
             self.rejected_steers_queue = input_state.rejected_steers_queue;
             self.queued_user_messages = input_state.queued_user_messages;
             self.pending_usage_limit_resume_turn = input_state.pending_usage_limit_resume_turn;
+            self.usage_limit_resume_waiting_for_auth_reload =
+                input_state.usage_limit_resume_waiting_for_auth_reload;
         } else {
             self.agent_turn_running = false;
             self.pending_steers.clear();
             self.rejected_steers_queue.clear();
             self.pending_usage_limit_resume_turn = None;
+            self.usage_limit_resume_waiting_for_auth_reload = false;
             self.set_remote_image_urls(Vec::new());
             self.bottom_pane.set_composer_text_with_mention_bindings(
                 String::new(),
@@ -5012,6 +5040,7 @@ impl ChatWidget {
             pending_status_indicator_restore: false,
             pending_auth_reload_attempt: None,
             pending_usage_limit_resume_turn: None,
+            usage_limit_resume_waiting_for_auth_reload: false,
             suppress_queue_autosend: false,
             thread_id: None,
             last_turn_id: None,
@@ -5245,6 +5274,7 @@ impl ChatWidget {
                     {
                         return;
                     }
+                    self.clear_pending_usage_limit_resume_turn();
                     let should_submit_now =
                         self.is_session_configured() && !self.is_plan_streaming_in_tui();
                     if should_submit_now {
@@ -5275,6 +5305,7 @@ impl ChatWidget {
                             .bottom_pane
                             .take_recent_submission_mention_bindings(),
                     };
+                    self.clear_pending_usage_limit_resume_turn();
                     self.queue_user_message(user_message);
                 }
                 InputResult::Command(cmd) => {
@@ -7204,6 +7235,11 @@ impl ChatWidget {
         if self.pending_auth_reload_attempt.is_some() {
             return;
         }
+        if self.usage_limit_resume_waiting_for_auth_reload
+            && self.pending_usage_limit_resume_turn.is_some()
+        {
+            return;
+        }
         if let Some(user_message) = self.pending_usage_limit_resume_turn.take() {
             self.reasoning_buffer.clear();
             self.full_reasoning_buffer.clear();
@@ -7241,6 +7277,16 @@ impl ChatWidget {
             pending_steers,
             rejected_steers,
         );
+    }
+
+    fn clear_pending_usage_limit_resume_turn(&mut self) {
+        if self.pending_usage_limit_resume_turn.take().is_none()
+            && !self.usage_limit_resume_waiting_for_auth_reload
+        {
+            return;
+        }
+        self.usage_limit_resume_waiting_for_auth_reload = false;
+        self.refresh_pending_input_preview();
     }
 
     pub(crate) fn set_pending_thread_approvals(&mut self, threads: Vec<String>) {
@@ -7581,7 +7627,10 @@ impl ChatWidget {
             loop {
                 interval.tick().await;
                 let summary = collect_git_status_summary(cwd.as_path()).await;
-                app_event_tx.send(AppEvent::GitStatusFetched(summary));
+                app_event_tx.send(AppEvent::GitStatusFetched {
+                    cwd: cwd.clone(),
+                    summary,
+                });
             }
         });
 
@@ -10459,6 +10508,7 @@ impl ChatWidget {
             text_elements: Vec::new(),
             mention_bindings: Vec::new(),
         };
+        self.clear_pending_usage_limit_resume_turn();
         if should_queue {
             self.queue_user_message(user_message);
         } else {
