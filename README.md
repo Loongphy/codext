@@ -55,8 +55,7 @@ cargo run --bin codex
   [tui]
   usage_limit_resume_prompt = ""
   ```
-* `AGENTS.md` / project-doc files are re-scanned on each new user turn, and Codext shows an explicit warning when the resolved instructions change.
-* Current behavior updates the session-scoped resolved instructions, but does not hot-swap the earliest injected `# AGENTS.md instructions for ...` block inside an ongoing conversation. In other words, Codext does not rewrite the already-cached contextual user prefix in place, so this does not by itself invalidate the existing prompt-cache prefix. To guarantee updated `AGENTS.md` text is model-visible, start a fresh thread/session or otherwise force a full-context rebuild.
+* AGENTS.md and project-doc instructions are refreshed on each new user turn, and Codex shows an explicit warning when a refresh is applied.
 
 ## Project Goals
 
