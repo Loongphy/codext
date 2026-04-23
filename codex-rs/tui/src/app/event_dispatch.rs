@@ -466,6 +466,13 @@ impl App {
             AppEvent::FileSearchResult { query, matches } => {
                 self.chat_widget.apply_file_search_result(query, matches);
             }
+            AppEvent::AuthFileChanged => {
+                self.handle_auth_file_changed(tui, app_server, 1).await;
+            }
+            AppEvent::AuthFileChangedRetry { attempt } => {
+                self.handle_auth_file_changed(tui, app_server, attempt)
+                    .await;
+            }
             AppEvent::RefreshRateLimits { origin } => {
                 self.refresh_rate_limits(app_server, origin);
             }
@@ -487,7 +494,8 @@ impl App {
                         self.chat_widget.on_rate_limit_snapshot(Some(snapshot));
                     }
                     match origin {
-                        RateLimitRefreshOrigin::StartupPrefetch => {
+                        RateLimitRefreshOrigin::StartupPrefetch
+                        | RateLimitRefreshOrigin::BackgroundPoll => {
                             tui.frame_requester().schedule_frame();
                         }
                         RateLimitRefreshOrigin::StatusCommand { request_id } => {
@@ -504,6 +512,9 @@ impl App {
                     }
                 }
             },
+            AppEvent::GitStatusFetched { cwd, summary } => {
+                self.chat_widget.on_git_status_update(cwd, summary);
+            }
             AppEvent::ConnectorsLoaded { result, is_final } => {
                 self.chat_widget.on_connectors_loaded(result, is_final);
             }

@@ -16,6 +16,7 @@ pub use codex_protocol::config_types::ModeKind;
 pub use codex_protocol::config_types::Personality;
 pub use codex_protocol::config_types::ServiceTier;
 pub use codex_protocol::config_types::WebSearchMode;
+use codex_protocol::openai_models::ReasoningEffort;
 use codex_utils_absolute_path::AbsolutePathBuf;
 use std::collections::BTreeMap;
 use std::collections::HashMap;
@@ -581,9 +582,34 @@ pub struct Tui {
     #[serde(default)]
     pub theme: Option<String>,
 
+    /// Optional synthetic user-turn prompt injected after a turn fails with
+    /// `UsageLimitExceeded`.
+    ///
+    /// When unset, Codex uses the built-in default recovery prompt.
+    /// When set to an empty string, Codex disables this automatic recovery turn.
+    #[serde(default)]
+    pub usage_limit_resume_prompt: Option<String>,
+
     /// Startup tooltip availability NUX state persisted by the TUI.
     #[serde(default)]
     pub model_availability_nux: ModelAvailabilityNuxConfig,
+}
+
+/// Optional overrides for collaboration mode presets.
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Default, JsonSchema)]
+#[schemars(deny_unknown_fields)]
+pub struct CollaborationModeOverrides {
+    pub plan: Option<CollaborationModeOverride>,
+    /// Legacy alias for the default/code mode overrides.
+    pub code: Option<CollaborationModeOverride>,
+}
+
+/// Overrides for a single collaboration mode preset.
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, Default, JsonSchema)]
+#[schemars(deny_unknown_fields)]
+pub struct CollaborationModeOverride {
+    pub model: Option<String>,
+    pub reasoning_effort: Option<ReasoningEffort>,
 }
 
 const fn default_true() -> bool {

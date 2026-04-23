@@ -184,6 +184,10 @@ pub(super) async fn user_input_or_turn_inner(
         _ => unreachable!(),
     };
 
+    let requested_cwd = updates.cwd.clone();
+    sess.maybe_refresh_project_docs_for_user_turn(&sub_id, requested_cwd.as_ref())
+        .await;
+
     let Ok(current_context) = sess.new_turn_with_sub_id(sub_id.clone(), updates).await else {
         // new_turn_with_sub_id already emits the error event.
         return;
