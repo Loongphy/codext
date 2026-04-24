@@ -64,4 +64,5 @@ This file captures the full set of changes currently in the working tree.
 ## WSL bubblewrap `.codex` artifact
 
 - Fixed the Linux bubblewrap sandbox path that protected a missing top-level `.codex` by bind-mounting `/dev/null` onto the first missing component.
-- Missing protected paths now use a sandbox-local read-only blocker file instead of materializing a host-side `.codex` file in the project root.
+- Missing project-local `.codex` read-only carveouts are now skipped by bubblewrap until the path exists, because bubblewrap materializes missing mount targets on the host when they live under writable binds.
+- Existing project-local `.codex` paths remain protected by the normal read-only remount path.

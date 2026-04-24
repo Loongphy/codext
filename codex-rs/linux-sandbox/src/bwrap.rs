@@ -416,12 +416,7 @@ fn create_filesystem_args(
         }
         read_only_subpaths.sort_by_key(|path| path_depth(path));
         for subpath in read_only_subpaths {
-            append_read_only_subpath_args(
-                &mut args,
-                &mut preserved_files,
-                &subpath,
-                &allowed_write_paths,
-            )?;
+            append_read_only_subpath_args(&mut args, &subpath, &allowed_write_paths)?;
         }
         let mut nested_unreadable_roots: Vec<PathBuf> = unreadable_roots
             .iter()
@@ -792,7 +787,6 @@ fn append_mount_target_parent_dir_args(args: &mut Vec<String>, mount_target: &Pa
 
 fn append_read_only_subpath_args(
     args: &mut Vec<String>,
-    preserved_files: &mut Vec<File>,
     subpath: &Path,
     allowed_write_paths: &[PathBuf],
 ) -> Result<()> {
@@ -811,11 +805,12 @@ fn append_read_only_subpath_args(
     }
 
     if !subpath.exists() {
-        if let Some(first_missing_component) = find_first_non_existent_component(subpath)
-            && is_within_allowed_write_paths(&first_missing_component, allowed_write_paths)
-        {
-            append_missing_path_blocker_args(args, preserved_files, &first_missing_component)?;
-        }
+        // Bubblewrap creates missing bind targets before mounting over them.
+        // Under a writable host bind, that setup step materializes a real
+        // host-side placeholder such as `<cwd>/.codex`. Skip missing read-only
+        // carveouts here; existing protected paths are still remounted read-only,
+        // and higher-level filesystem policy checks still gate direct writes
+        // routed through Codex approval-aware tools.
         return Ok(());
     }
 

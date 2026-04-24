@@ -50,9 +50,14 @@ commands that would enter the bubblewrap path.
   seccomp network filter in-process.
 - When bubblewrap is active, the filesystem is read-only by default via `--ro-bind / /`.
 - When bubblewrap is active, writable roots are layered with `--bind <root> <root>`.
-- When bubblewrap is active, protected subpaths under writable roots (for
-  example `.git`,
-  resolved `gitdir:`, and `.codex`) are re-applied as read-only via `--ro-bind`.
+- When bubblewrap is active, existing protected subpaths under writable roots
+  (for example `.git`, resolved `gitdir:`, and `.codex`) are re-applied as
+  read-only via `--ro-bind`.
+- When a protected read-only subpath such as project-local `.codex` does not
+  exist yet, bubblewrap skips the missing mount target instead of synthesizing
+  one. Bubblewrap creates missing mount targets on the host side when they live
+  under writable binds, which would otherwise leave an empty `.codex` artifact
+  in the project root on WSL2 and Linux.
 - When bubblewrap is active, overlapping split-policy
   entries are applied in path-specificity order so narrower writable children
   can reopen broader read-only or denied parents while narrower denied subpaths
@@ -78,9 +83,7 @@ commands that would enter the bubblewrap path.
   "**/*.env" = "none"
   ```
 
-- When bubblewrap is active, symlink-in-path protected paths fail closed, and
-  non-existent protected paths inside writable roots are blocked with a
-  sandbox-local read-only data mount on the first missing component.
+- When bubblewrap is active, symlink-in-path protected paths fail closed.
 - When bubblewrap is active, the helper explicitly isolates the user namespace via
   `--unshare-user` and the PID namespace via `--unshare-pid`.
 - When bubblewrap is active and network is restricted without proxy routing, the helper also
