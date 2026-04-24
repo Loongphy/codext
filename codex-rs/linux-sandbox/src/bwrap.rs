@@ -416,7 +416,12 @@ fn create_filesystem_args(
         }
         read_only_subpaths.sort_by_key(|path| path_depth(path));
         for subpath in read_only_subpaths {
-            append_read_only_subpath_args(&mut args, &subpath, &allowed_write_paths)?;
+            append_read_only_subpath_args(
+                &mut args,
+                &mut preserved_files,
+                &subpath,
+                &allowed_write_paths,
+            )?;
         }
         let mut nested_unreadable_roots: Vec<PathBuf> = unreadable_roots
             .iter()
@@ -787,6 +792,7 @@ fn append_mount_target_parent_dir_args(args: &mut Vec<String>, mount_target: &Pa
 
 fn append_read_only_subpath_args(
     args: &mut Vec<String>,
+    preserved_files: &mut Vec<File>,
     subpath: &Path,
     allowed_write_paths: &[PathBuf],
 ) -> Result<()> {
@@ -808,9 +814,7 @@ fn append_read_only_subpath_args(
         if let Some(first_missing_component) = find_first_non_existent_component(subpath)
             && is_within_allowed_write_paths(&first_missing_component, allowed_write_paths)
         {
-            args.push("--ro-bind".to_string());
-            args.push("/dev/null".to_string());
-            args.push(path_to_string(&first_missing_component));
+            append_missing_path_blocker_args(args, preserved_files, &first_missing_component)?;
         }
         return Ok(());
     }
@@ -850,9 +854,7 @@ fn append_unreadable_root_args(
         if let Some(first_missing_component) = find_first_non_existent_component(unreadable_root)
             && is_within_allowed_write_paths(&first_missing_component, allowed_write_paths)
         {
-            args.push("--ro-bind".to_string());
-            args.push("/dev/null".to_string());
-            args.push(path_to_string(&first_missing_component));
+            append_missing_path_blocker_args(args, preserved_files, &first_missing_component)?;
         }
         return Ok(());
     }
@@ -901,16 +903,34 @@ fn append_existing_unreadable_path_args(
         return Ok(());
     }
 
-    if preserved_files.is_empty() {
-        preserved_files.push(File::open("/dev/null")?);
-    }
-    let null_fd = preserved_files[0].as_raw_fd().to_string();
+    let null_fd = ensure_preserved_dev_null_fd(preserved_files)?;
     args.push("--perms".to_string());
     args.push("000".to_string());
     args.push("--ro-bind-data".to_string());
     args.push(null_fd);
     args.push(path_to_string(unreadable_root));
     Ok(())
+}
+
+fn append_missing_path_blocker_args(
+    args: &mut Vec<String>,
+    preserved_files: &mut Vec<File>,
+    first_missing_component: &Path,
+) -> Result<()> {
+    let null_fd = ensure_preserved_dev_null_fd(preserved_files)?;
+    args.push("--perms".to_string());
+    args.push("000".to_string());
+    args.push("--ro-bind-data".to_string());
+    args.push(null_fd);
+    args.push(path_to_string(first_missing_component));
+    Ok(())
+}
+
+fn ensure_preserved_dev_null_fd(preserved_files: &mut Vec<File>) -> Result<String> {
+    if preserved_files.is_empty() {
+        preserved_files.push(File::open("/dev/null")?);
+    }
+    Ok(preserved_files[0].as_raw_fd().to_string())
 }
 
 /// Returns true when `path` is under any allowed writable root.

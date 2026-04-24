@@ -78,9 +78,9 @@ commands that would enter the bubblewrap path.
   "**/*.env" = "none"
   ```
 
-- When bubblewrap is active, symlink-in-path and non-existent protected paths inside
-  writable roots are blocked by mounting `/dev/null` on the symlink or first
-  missing component.
+- When bubblewrap is active, symlink-in-path protected paths fail closed, and
+  non-existent protected paths inside writable roots are blocked with a
+  sandbox-local read-only data mount on the first missing component.
 - When bubblewrap is active, the helper explicitly isolates the user namespace via
   `--unshare-user` and the PID namespace via `--unshare-pid`.
 - When bubblewrap is active and network is restricted without proxy routing, the helper also

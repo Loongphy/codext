@@ -469,6 +469,15 @@ impl App {
             AppEvent::RefreshRateLimits { origin } => {
                 self.refresh_rate_limits(app_server, origin);
             }
+            AppEvent::AuthFileChanged => {
+                self.handle_auth_file_changed(app_server, /*attempt*/ 1).await;
+            }
+            AppEvent::AuthFileChangedRetry { attempt } => {
+                self.handle_auth_file_changed(app_server, attempt).await;
+            }
+            AppEvent::GitStatusFetched { cwd, summary } => {
+                self.chat_widget.on_git_status_update(cwd, summary);
+            }
             AppEvent::SendAddCreditsNudgeEmail { credit_type } => {
                 if self
                     .chat_widget
@@ -487,7 +496,8 @@ impl App {
                         self.chat_widget.on_rate_limit_snapshot(Some(snapshot));
                     }
                     match origin {
-                        RateLimitRefreshOrigin::StartupPrefetch => {
+                        RateLimitRefreshOrigin::StartupPrefetch
+                        | RateLimitRefreshOrigin::BackgroundPoll => {
                             tui.frame_requester().schedule_frame();
                         }
                         RateLimitRefreshOrigin::StatusCommand { request_id } => {

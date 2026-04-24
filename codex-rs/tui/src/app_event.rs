@@ -34,6 +34,7 @@ use crate::bottom_pane::ApprovalRequest;
 use crate::bottom_pane::StatusLineItem;
 use crate::bottom_pane::TerminalTitleItem;
 use crate::chatwidget::UserMessage;
+use crate::git_status::GitStatusSummary;
 use codex_config::types::ApprovalsReviewer;
 use codex_features::Feature;
 use codex_plugin::PluginCapabilitySummary;
@@ -95,6 +96,8 @@ pub(crate) struct ConnectorsSnapshot {
 pub(crate) enum RateLimitRefreshOrigin {
     /// Eagerly fetched after bootstrap so the first `/status` already has data.
     StartupPrefetch,
+    /// Background refresh used to keep the status header fresh while idle.
+    BackgroundPoll,
     /// User-initiated via `/status`; the `request_id` correlates with the
     /// status card that should be updated when the fetch completes.
     StatusCommand { request_id: u64 },
@@ -191,6 +194,20 @@ pub(crate) enum AppEvent {
     RateLimitsLoaded {
         origin: RateLimitRefreshOrigin,
         result: Result<Vec<RateLimitSnapshot>, String>,
+    },
+
+    /// auth.json changed on disk.
+    AuthFileChanged,
+
+    /// Retry a failed auth reload attempt after debounce/backoff.
+    AuthFileChangedRetry {
+        attempt: u8,
+    },
+
+    /// Result of a background git-status poll for the current session cwd.
+    GitStatusFetched {
+        cwd: AbsolutePathBuf,
+        summary: Option<GitStatusSummary>,
     },
 
     /// Send a user-confirmed request to notify the workspace owner.

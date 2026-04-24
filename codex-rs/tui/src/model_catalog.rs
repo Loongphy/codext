@@ -1,5 +1,7 @@
 use codex_models_manager::collaboration_mode_presets::CollaborationModesConfig;
+#[cfg(test)]
 use codex_models_manager::collaboration_mode_presets::builtin_collaboration_mode_presets;
+#[cfg(test)]
 use codex_protocol::config_types::CollaborationModeMask;
 use codex_protocol::openai_models::ModelPreset;
 use std::convert::Infallible;
@@ -7,6 +9,7 @@ use std::convert::Infallible;
 #[derive(Debug, Clone)]
 pub(crate) struct ModelCatalog {
     models: Vec<ModelPreset>,
+    #[cfg_attr(not(test), allow(dead_code))]
     collaboration_modes_config: CollaborationModesConfig,
 }
 
@@ -25,6 +28,7 @@ impl ModelCatalog {
         Ok(self.models.clone())
     }
 
+    #[cfg(test)]
     pub(crate) fn list_collaboration_modes(&self) -> Vec<CollaborationModeMask> {
         builtin_collaboration_mode_presets(self.collaboration_modes_config)
     }

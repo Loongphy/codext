@@ -1463,7 +1463,7 @@ Codex supports these authentication modes. The current mode is surfaced in `acco
 
 ### API Overview
 
-- `account/read` — fetch current account info; optionally refresh tokens.
+- `account/read` — fetch current account info; optionally refresh tokens or reload auth from storage.
 - `account/login/start` — begin login (`apiKey`, `chatgpt`, `chatgptDeviceCode`).
 - `account/login/completed` (notify) — emitted when a login attempt finishes (success or error).
 - `account/login/cancel` — cancel a pending managed ChatGPT login by `loginId`.
@@ -1480,7 +1480,7 @@ Codex supports these authentication modes. The current mode is surfaced in `acco
 Request:
 
 ```json
-{ "method": "account/read", "id": 1, "params": { "refreshToken": false } }
+{ "method": "account/read", "id": 1, "params": { "refreshToken": false, "reloadAuthFromStorage": false } }
 ```
 
 Response examples:
@@ -1495,6 +1495,7 @@ Response examples:
 Field notes:
 
 - `refreshToken` (bool): set `true` to force a token refresh.
+- `reloadAuthFromStorage` (bool): set `true` to reload the current auth snapshot from storage before returning.
 - `requiresOpenaiAuth` reflects the active provider; when `false`, Codex can run without OpenAI credentials.
 
 ### 2) Log in with an API key

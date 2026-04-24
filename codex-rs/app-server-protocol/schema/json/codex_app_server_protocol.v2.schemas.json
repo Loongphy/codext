@@ -5732,6 +5732,11 @@
           "default": false,
           "description": "When `true`, requests a proactive token refresh before returning.\n\nIn managed auth mode this triggers the normal refresh-token flow. In external auth mode this flag is ignored. Clients should refresh tokens themselves and call `account/login/start` with `chatgptAuthTokens`.",
           "type": "boolean"
+        },
+        "reloadAuthFromStorage": {
+          "default": false,
+          "description": "When `true`, reloads the auth snapshot from storage before returning.\n\nThis keeps long-lived clients in sync with `auth.json` updates without requiring a full app-server restart.",
+          "type": "boolean"
         }
       },
       "title": "GetAccountParams",
