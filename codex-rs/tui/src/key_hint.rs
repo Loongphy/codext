@@ -49,6 +49,10 @@ pub(crate) const fn ctrl(key: KeyCode) -> KeyBinding {
     KeyBinding::new(key, KeyModifiers::CONTROL)
 }
 
+pub(crate) const fn ctrl_shift(key: KeyCode) -> KeyBinding {
+    KeyBinding::new(key, KeyModifiers::CONTROL.union(KeyModifiers::SHIFT))
+}
+
 pub(crate) const fn ctrl_alt(key: KeyCode) -> KeyBinding {
     KeyBinding::new(key, KeyModifiers::CONTROL.union(KeyModifiers::ALT))
 }
