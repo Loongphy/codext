@@ -35,6 +35,7 @@ use codex_config::profile_toml::ConfigProfile;
 use codex_config::sandbox_mode_requirement_for_permission_profile;
 use codex_config::types::ApprovalsReviewer;
 use codex_config::types::AuthCredentialsStoreMode;
+use codex_config::types::CollaborationModeOverrides;
 use codex_config::types::DEFAULT_OTEL_ENVIRONMENT;
 use codex_config::types::History;
 use codex_config::types::McpServerConfig;
@@ -543,6 +544,13 @@ pub struct Config {
     /// 3. built-in defaults
     pub tui_keymap: TuiKeymap,
 
+    /// Synthetic user-turn prompt injected after a `UsageLimitExceeded` turn
+    /// failure.
+    ///
+    /// `None` uses the built-in default prompt. `Some("")` disables the
+    /// automatic recovery turn.
+    pub tui_usage_limit_resume_prompt: Option<String>,
+
     /// The absolute directory that should be treated as the current working
     /// directory for the session. All relative paths inside the business-logic
     /// layer are resolved against this path.
@@ -994,6 +1002,14 @@ impl Config {
             model_supports_reasoning_summaries: self.model_supports_reasoning_summaries,
             model_catalog: self.model_catalog.clone(),
         }
+    }
+
+    pub fn collaboration_mode_overrides(&self) -> Option<CollaborationModeOverrides> {
+        self.config_layer_stack
+            .effective_config()
+            .try_into()
+            .ok()
+            .and_then(|config: ConfigToml| config.collaboration_modes)
     }
 
     pub async fn to_mcp_config(
@@ -2997,6 +3013,10 @@ impl Config {
                 .as_ref()
                 .map(|t| t.keymap.clone())
                 .unwrap_or_default(),
+            tui_usage_limit_resume_prompt: cfg
+                .tui
+                .as_ref()
+                .and_then(|t| t.usage_limit_resume_prompt.clone()),
             otel: {
                 let t: OtelConfigToml = cfg.otel.unwrap_or_default();
                 let log_user_prompt = t.log_user_prompt.unwrap_or(false);

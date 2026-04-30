@@ -1046,6 +1046,12 @@ enum UnauthorizedRecoveryMode {
     External,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AuthReloadStatus {
+    Reloaded { changed: bool },
+    Failed,
+}
+
 // UnauthorizedRecovery is a state machine that handles an attempt to refresh the authentication when requests
 // to API fail with 401 status code.
 // The client calls next() every time it encounters a 401 error, one time per retry.
@@ -1238,9 +1244,9 @@ impl UnauthorizedRecovery {
 /// hands out cloned `CodexAuth` values so the rest of the program has a
 /// consistent snapshot.
 ///
-/// External modifications to `auth.json` will NOT be observed until
-/// `reload()` is called explicitly. This matches the design goal of avoiding
-/// different parts of the program seeing inconsistent auth data mid‑run.
+/// External modifications to `auth.json` will not be observed until `reload()`
+/// or `reload_with_status()` is called explicitly. This matches the design goal
+/// of avoiding different parts of the program seeing inconsistent auth data mid-run.
 pub struct AuthManager {
     codex_home: PathBuf,
     inner: RwLock<CachedAuth>,
@@ -1418,9 +1424,30 @@ impl AuthManager {
     /// Force a reload of the auth information from auth.json. Returns
     /// whether the auth value changed.
     pub async fn reload(&self) -> bool {
+        match self.reload_with_status().await {
+            AuthReloadStatus::Reloaded { changed } => changed,
+            AuthReloadStatus::Failed => false,
+        }
+    }
+
+    /// Force a reload of auth information from storage.
+    ///
+    /// Returns whether the cached auth changed, or `Failed` when storage could
+    /// not be read while the file was being updated.
+    pub async fn reload_with_status(&self) -> AuthReloadStatus {
         tracing::info!("Reloading auth");
-        let new_auth = self.load_auth_from_storage().await;
-        self.set_cached_auth(new_auth)
+        let new_auth = match self.load_auth_from_storage().await {
+            Ok(new_auth) => new_auth,
+            Err(err) => {
+                tracing::warn!(
+                    %err,
+                    "Failed to reload auth from storage; keeping current auth state"
+                );
+                return AuthReloadStatus::Failed;
+            }
+        };
+        let changed = self.set_cached_auth(new_auth);
+        AuthReloadStatus::Reloaded { changed }
     }
 
     async fn reload_if_account_id_matches(
@@ -1435,7 +1462,16 @@ impl AuthManager {
             }
         };
 
-        let new_auth = self.load_auth_from_storage().await;
+        let new_auth = match self.load_auth_from_storage().await {
+            Ok(new_auth) => new_auth,
+            Err(err) => {
+                tracing::warn!(
+                    %err,
+                    "Skipping auth reload because auth storage could not be read"
+                );
+                return ReloadOutcome::Skipped;
+            }
+        };
         let new_account_id = new_auth.as_ref().and_then(CodexAuth::get_account_id);
 
         if new_account_id.as_deref() != Some(expected_account_id) {
@@ -1506,7 +1542,7 @@ impl AuthManager {
         }
     }
 
-    async fn load_auth_from_storage(&self) -> Option<CodexAuth> {
+    async fn load_auth_from_storage(&self) -> std::io::Result<Option<CodexAuth>> {
         load_auth(
             &self.codex_home,
             self.enable_codex_api_key_env,
@@ -1514,8 +1550,6 @@ impl AuthManager {
             self.chatgpt_base_url.as_deref(),
         )
         .await
-        .ok()
-        .flatten()
     }
 
     fn set_cached_auth(&self, new_auth: Option<CodexAuth>) -> bool {

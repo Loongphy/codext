@@ -304,6 +304,7 @@ use codex_feedback::FeedbackUploadOptions;
 use codex_git_utils::git_diff_to_remote;
 use codex_git_utils::resolve_root_git_project_for_trust;
 use codex_login::AuthManager;
+use codex_login::AuthReloadStatus;
 use codex_login::CLIENT_ID;
 use codex_login::CodexAuth;
 use codex_login::ServerOptions as LoginServerOptions;
@@ -325,6 +326,9 @@ use codex_memories_write::clear_memory_roots_contents;
 use codex_model_provider::ProviderAccountError;
 use codex_model_provider::create_model_provider;
 use codex_models_manager::collaboration_mode_presets::builtin_collaboration_mode_presets;
+use codex_models_manager::collaboration_mode_presets::collaboration_mode_presets_with_overrides_and_config;
+use codex_models_manager::collaboration_mode_presets::CollaborationModesConfig;
+use codex_models_manager::manager::RefreshStrategy;
 use codex_protocol::ThreadId;
 use codex_protocol::config_types::CollaborationMode;
 use codex_protocol::config_types::ForcedLoginMethod;
@@ -895,9 +899,10 @@ impl CodexMessageProcessor {
     fn normalize_turn_start_collaboration_mode(
         &self,
         mut collaboration_mode: CollaborationMode,
+        collaboration_modes_config: CollaborationModesConfig,
     ) -> CollaborationMode {
         if collaboration_mode.settings.developer_instructions.is_none()
-            && let Some(instructions) = builtin_collaboration_mode_presets()
+            && let Some(instructions) = builtin_collaboration_mode_presets(collaboration_modes_config)
                 .into_iter()
                 .find(|preset| preset.mode == Some(collaboration_mode.mode))
                 .and_then(|preset| preset.developer_instructions.flatten())
@@ -1203,11 +1208,18 @@ impl CodexMessageProcessor {
             ClientRequest::CollaborationModeList { request_id, params } => {
                 let outgoing = self.outgoing.clone();
                 let thread_manager = self.thread_manager.clone();
+                let config = self.config.clone();
                 let request_id = to_connection_request_id(request_id);
 
                 tokio::spawn(async move {
-                    Self::list_collaboration_modes(outgoing, thread_manager, request_id, params)
-                        .await;
+                    Self::list_collaboration_modes(
+                        outgoing,
+                        thread_manager,
+                        config,
+                        request_id,
+                        params,
+                    )
+                    .await;
                 });
             }
             ClientRequest::MockExperimentalMethod { request_id, params } => {
@@ -1967,6 +1979,19 @@ impl CodexMessageProcessor {
         params: GetAccountParams,
     ) -> Result<GetAccountResponse, JSONRPCErrorError> {
         let do_refresh = params.refresh_token;
+
+        if params.reload_auth_from_storage {
+            match self.auth_manager.reload_with_status().await {
+                AuthReloadStatus::Reloaded { .. } => {}
+                AuthReloadStatus::Failed => {
+                    return Err(JSONRPCErrorError {
+                        code: INTERNAL_ERROR_CODE,
+                        message: "failed to reload auth from storage".to_string(),
+                        data: None,
+                    });
+                }
+            }
+        }
 
         self.refresh_token_if_requested(do_refresh).await;
 
@@ -5285,12 +5310,28 @@ impl CodexMessageProcessor {
     async fn list_collaboration_modes(
         outgoing: Arc<OutgoingMessageSender>,
         thread_manager: Arc<ThreadManager>,
+        config: Arc<Config>,
         request_id: ConnectionRequestId,
         params: CollaborationModeListParams,
     ) {
         let CollaborationModeListParams {} = params;
-        let items = thread_manager
-            .list_collaboration_modes()
+        let config = (*config).clone();
+        let collaboration_modes_config = CollaborationModesConfig {
+            default_mode_request_user_input: config
+                .features
+                .enabled(Feature::DefaultModeRequestUserInput),
+        };
+        let collaboration_mode_overrides = config.collaboration_mode_overrides();
+        let base_model = thread_manager
+            .get_models_manager()
+            .get_default_model(&config.model, RefreshStrategy::Offline)
+            .await;
+        let items = collaboration_mode_presets_with_overrides_and_config(
+            &base_model,
+            config.model_reasoning_effort,
+            collaboration_mode_overrides.as_ref(),
+            collaboration_modes_config,
+        )
             .into_iter()
             .map(Into::into)
             .collect();
@@ -6558,9 +6599,14 @@ impl CodexMessageProcessor {
                 self.track_error_response(&request_id, error, /*error_type*/ None);
             })?;
 
+            let collaboration_modes_config = CollaborationModesConfig {
+                default_mode_request_user_input: self.config
+                    .features
+                    .enabled(Feature::DefaultModeRequestUserInput),
+            };
             let collaboration_mode = params
                 .collaboration_mode
-                .map(|mode| self.normalize_turn_start_collaboration_mode(mode));
+                .map(|mode| self.normalize_turn_start_collaboration_mode(mode, collaboration_modes_config));
             let environments: Option<Vec<TurnEnvironmentSelection>> =
                 params.environments.map(|environments| {
                     environments

@@ -1121,6 +1121,52 @@ impl Session {
         }
     }
 
+    pub(crate) async fn maybe_refresh_project_docs_for_user_turn(
+        &self,
+        sub_id: &str,
+        requested_cwd: Option<&Path>,
+    ) {
+        let environment = self.services.environment_manager.default_environment();
+        let (mut config, previous_user_instructions, session_cwd) = {
+            let state = self.state.lock().await;
+            (
+                (*state.session_configuration.original_config_do_not_use).clone(),
+                state.session_configuration.user_instructions.clone(),
+                state.session_configuration.cwd.clone(),
+            )
+        };
+        config.cwd = requested_cwd
+            .map(|cwd| {
+                AbsolutePathBuf::relative_to_current_dir(normalize_for_native_workdir(cwd))
+                    .unwrap_or_else(|e| {
+                        warn!("failed to normalize update cwd: {cwd:?}: {e}");
+                        session_cwd.clone()
+                    })
+            })
+            .unwrap_or(session_cwd);
+
+        let next_user_instructions = AgentsMdManager::new(&config)
+            .user_instructions(environment.as_deref())
+            .await;
+        if next_user_instructions == previous_user_instructions {
+            return;
+        }
+
+        {
+            let mut state = self.state.lock().await;
+            state.session_configuration.user_instructions = next_user_instructions;
+        }
+        self.send_event_raw(Event {
+            id: sub_id.to_string(),
+            msg: EventMsg::Warning(WarningEvent {
+                message:
+                    "AGENTS.md instructions changed. Reloaded and applied starting this turn."
+                        .to_string(),
+            }),
+        })
+        .await;
+    }
+
     // Merges connector IDs into the session-level explicit connector selection.
     pub(crate) async fn merge_connector_selection(
         &self,

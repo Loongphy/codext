@@ -242,6 +242,7 @@ struct WebsocketSession {
     connection: Option<ApiWebSocketConnection>,
     last_request: Option<ResponsesApiRequest>,
     last_response_rx: Option<oneshot::Receiver<LastResponse>>,
+    auth_fingerprint: Option<Vec<(String, Vec<u8>)>>,
     connection_reused: StdMutex<bool>,
 }
 
@@ -286,6 +287,20 @@ fn sideband_websocket_auth_headers(api_auth: &dyn AuthProvider) -> ApiHeaderMap 
     let mut headers = ApiHeaderMap::new();
     api_auth.add_auth_headers(&mut headers);
     headers
+}
+
+fn websocket_auth_fingerprint(api_auth: &dyn AuthProvider) -> Vec<(String, Vec<u8>)> {
+    let headers = sideband_websocket_auth_headers(api_auth);
+    let mut fingerprint: Vec<(String, Vec<u8>)> = headers
+        .iter()
+        .map(|(name, value)| (name.as_str().to_string(), value.as_bytes().to_vec()))
+        .collect();
+    fingerprint.sort_by(|(left_name, left_value), (right_name, right_value)| {
+        left_name
+            .cmp(right_name)
+            .then_with(|| left_value.cmp(right_value))
+    });
+    fingerprint
 }
 
 impl ModelClient {
@@ -824,6 +839,7 @@ impl ModelClientSession {
         self.websocket_session.connection = None;
         self.websocket_session.last_request = None;
         self.websocket_session.last_response_rx = None;
+        self.websocket_session.auth_fingerprint = None;
         self.websocket_session
             .set_connection_reused(/*connection_reused*/ false);
     }
@@ -1078,6 +1094,10 @@ impl ModelClientSession {
             auth_context,
             request_route_telemetry,
         } = params;
+        let auth_fingerprint = websocket_auth_fingerprint(api_auth.as_ref());
+        if self.websocket_session.auth_fingerprint.as_ref() != Some(&auth_fingerprint) {
+            self.reset_websocket_session();
+        }
         let needs_new = match self.websocket_session.connection.as_ref() {
             Some(conn) => conn.is_closed().await,
             None => true,
@@ -1112,6 +1132,7 @@ impl ModelClientSession {
                 }
             };
             self.websocket_session.connection = Some(new_conn);
+            self.websocket_session.auth_fingerprint = Some(auth_fingerprint);
             self.websocket_session
                 .set_connection_reused(/*connection_reused*/ false);
         } else {

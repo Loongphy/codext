@@ -51,8 +51,8 @@ commands that would enter the bubblewrap path.
 - When bubblewrap is active, the filesystem is read-only by default via `--ro-bind / /`.
 - When bubblewrap is active, writable roots are layered with `--bind <root> <root>`.
 - When bubblewrap is active, protected subpaths under writable roots (for
-  example `.git`,
-  resolved `gitdir:`, and `.codex`) are re-applied as read-only via `--ro-bind`.
+  example `.git`, resolved `gitdir:`, and `.codex`) are re-applied as
+  read-only via `--ro-bind`.
 - When bubblewrap is active, overlapping split-policy
   entries are applied in path-specificity order so narrower writable children
   can reopen broader read-only or denied parents while narrower denied subpaths
@@ -78,9 +78,11 @@ commands that would enter the bubblewrap path.
   "**/*.env" = "none"
   ```
 
-- When bubblewrap is active, symlink-in-path and non-existent protected paths inside
-  writable roots are blocked by mounting `/dev/null` on the symlink or first
-  missing component.
+- When bubblewrap is active, symlink-in-path protected paths fail closed, and
+  non-existent protected paths inside writable roots are blocked with a
+  sandbox-local read-only file blocker at the first missing component. If
+  bubblewrap materializes an empty host-side mount target for that blocker,
+  the helper removes it after bubblewrap exits.
 - When bubblewrap is active, the helper explicitly isolates the user namespace via
   `--unshare-user` and the PID namespace via `--unshare-pid`.
 - When bubblewrap is active and network is restricted without proxy routing, the helper also
