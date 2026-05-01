@@ -2966,12 +2966,7 @@ impl ChatWidget {
     }
 
     fn open_plan_implementation_prompt(&mut self) {
-        let collaboration_mode_overrides = self.config.collaboration_mode_overrides();
-        let default_mask = collaboration_modes::default_mode_mask_with_overrides(
-            self.current_collaboration_mode.model(),
-            self.current_collaboration_mode.reasoning_effort(),
-            collaboration_mode_overrides.as_ref(),
-        );
+        let default_mask = collaboration_modes::default_mode_mask(self.model_catalog.as_ref());
         let context_usage_label = self.plan_implementation_context_usage_label();
 
         self.bottom_pane
@@ -9168,12 +9163,7 @@ impl ChatWidget {
     }
 
     pub(crate) fn open_collaboration_modes_popup(&mut self) {
-        let collaboration_mode_overrides = self.config.collaboration_mode_overrides();
-        let presets = collaboration_modes::presets_for_tui_with_overrides(
-            self.current_collaboration_mode.model(),
-            self.current_collaboration_mode.reasoning_effort(),
-            collaboration_mode_overrides.as_ref(),
-        );
+        let presets = collaboration_modes::presets_for_tui(self.model_catalog.as_ref());
         if presets.is_empty() {
             self.add_info_message(
                 "No collaboration modes are available right now.".to_string(),
@@ -9187,12 +9177,8 @@ impl ChatWidget {
             .as_ref()
             .and_then(|mask| mask.mode)
             .or_else(|| {
-                collaboration_modes::default_mask_with_overrides(
-                    self.current_collaboration_mode.model(),
-                    self.current_collaboration_mode.reasoning_effort(),
-                    collaboration_mode_overrides.as_ref(),
-                )
-                .and_then(|mask| mask.mode)
+                collaboration_modes::default_mask(self.model_catalog.as_ref())
+                    .and_then(|mask| mask.mode)
             });
         let items: Vec<SelectionItem> = presets
             .into_iter()
@@ -9287,11 +9273,8 @@ impl ChatWidget {
                 "user-chosen Plan override ({})",
                 Self::reasoning_effort_label(plan_override).to_lowercase()
             )
-        } else if let Some(plan_mask) = collaboration_modes::plan_mask_with_overrides(
-            self.current_collaboration_mode.model(),
-            self.current_collaboration_mode.reasoning_effort(),
-            self.config.collaboration_mode_overrides().as_ref(),
-        ) {
+        } else if let Some(plan_mask) = collaboration_modes::plan_mask(self.model_catalog.as_ref())
+        {
             match plan_mask.reasoning_effort.flatten() {
                 Some(plan_effort) => format!(
                     "built-in Plan default ({})",
@@ -10582,11 +10565,8 @@ impl ChatWidget {
         {
             if let Some(effort) = effort {
                 mask.reasoning_effort = Some(Some(effort));
-            } else if let Some(plan_mask) = collaboration_modes::plan_mask_with_overrides(
-                self.current_collaboration_mode.model(),
-                self.current_collaboration_mode.reasoning_effort(),
-                self.config.collaboration_mode_overrides().as_ref(),
-            ) {
+            } else if let Some(plan_mask) = collaboration_modes::plan_mask(self.model_catalog.as_ref())
+            {
                 mask.reasoning_effort = plan_mask.reasoning_effort;
             }
         }
@@ -10880,12 +10860,7 @@ impl ChatWidget {
         let text = self.bottom_pane.composer_text();
         let trimmed = text.trim_start();
         self.collaboration_modes_enabled()
-            && collaboration_modes::plan_mask_with_overrides(
-                self.current_collaboration_mode.model(),
-                self.current_collaboration_mode.reasoning_effort(),
-                self.config.collaboration_mode_overrides().as_ref(),
-            )
-            .is_some()
+            && collaboration_modes::plan_mask(self.model_catalog.as_ref()).is_some()
             && self.active_mode_kind() != ModeKind::Plan
             && self.bottom_pane.composer_input_enabled()
             && !self.bottom_pane.is_task_running()
@@ -10912,15 +10887,11 @@ impl ChatWidget {
     }
 
     fn initial_collaboration_mask(
-        config: &Config,
-        _model_catalog: &ModelCatalog,
+        _config: &Config,
+        model_catalog: &ModelCatalog,
         model_override: Option<&str>,
     ) -> Option<CollaborationModeMask> {
-        let mut mask = collaboration_modes::default_mask_with_overrides(
-            model_override.or(config.model.as_deref()).unwrap_or(""),
-            config.model_reasoning_effort,
-            config.collaboration_mode_overrides().as_ref(),
-        )?;
+        let mut mask = collaboration_modes::default_mask(model_catalog)?;
         if let Some(model_override) = model_override {
             mask.model = Some(model_override.to_string());
         }
@@ -11081,11 +11052,8 @@ impl ChatWidget {
             return;
         }
 
-        let collaboration_mode_overrides = self.config.collaboration_mode_overrides();
-        if let Some(next_mask) = collaboration_modes::next_mask_with_overrides(
-            self.current_collaboration_mode.model(),
-            self.current_collaboration_mode.reasoning_effort(),
-            collaboration_mode_overrides.as_ref(),
+        if let Some(next_mask) = collaboration_modes::next_mask(
+            self.model_catalog.as_ref(),
             self.active_collaboration_mask.as_ref(),
         ) {
             self.set_collaboration_mask(next_mask);

@@ -171,6 +171,7 @@ git diff BASE_COMMIT..OLD_BRANCH -- path/to/file
 - 以 `coverage-checklist.md` 为 per-file 兜底清单，避免遗漏当前分支的任何改动。
 - 以 `CHANGED.md` 中记录的变动为主线逐项核对，确认每项需求都在当前 codebase 上重新实现。
 - 让意图文档与实现保持一致（必要时更新 Markdown）。
+- `collaboration_mode_presets` / `collaboration_modes` config override patch 已在 `rust-v0.128.0` 起退役：如果旧分支或 bundle 中仍包含该需求，不要继续移植；应以当前 `TAG` 的 upstream collaboration mode 行为为准，并删除 `README.md`、`CHANGED.md` 中对应说明。
 - 不跑测试；不要生成或更新任何测试文件/快照文件。
 
 ### 5.1) Status header 规范（改动 TUI 状态栏时）

@@ -19,7 +19,6 @@ pub use codex_protocol::config_types::ServiceTier;
 use codex_protocol::config_types::ShellEnvironmentPolicy;
 use codex_protocol::config_types::ShellEnvironmentPolicyInherit;
 pub use codex_protocol::config_types::WebSearchMode;
-use codex_protocol::openai_models::ReasoningEffort;
 use codex_utils_absolute_path::AbsolutePathBuf;
 use std::collections::BTreeMap;
 use std::collections::HashMap;
@@ -669,23 +668,6 @@ pub struct Tui {
     #[serde(default)]
     #[schemars(range(min = 0))]
     pub terminal_resize_reflow_max_rows: Option<usize>,
-}
-
-/// Optional overrides for collaboration mode presets.
-#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Default, JsonSchema)]
-#[schemars(deny_unknown_fields)]
-pub struct CollaborationModeOverrides {
-    pub plan: Option<CollaborationModeOverride>,
-    /// Legacy alias for the default/code mode overrides.
-    pub code: Option<CollaborationModeOverride>,
-}
-
-/// Overrides for a single collaboration mode preset.
-#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, Default, JsonSchema)]
-#[schemars(deny_unknown_fields)]
-pub struct CollaborationModeOverride {
-    pub model: Option<String>,
-    pub reasoning_effort: Option<ReasoningEffort>,
 }
 
 const fn default_true() -> bool {

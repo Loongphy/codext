@@ -42,13 +42,6 @@ This file captures the full set of changes currently in the working tree.
 - When automatic approval review times out or fails internally (for example, the reviewer hits a usage limit), sandbox approval requests now fall back to an explicit user approval prompt instead of stopping at a hard auto-review denial.
 - The TUI no longer renders a misleading `Request denied ...` history line for those reviewer-failure cases; the warning remains visible and the manual approval prompt follows.
 
-## Collaboration modes and config overrides
-
-- Added `collaboration_modes` config overrides with per-mode `model` and `reasoning_effort` fields (plan/code).
-- Collaboration mode presets now derive defaults from `/model` + reasoning effort and apply the optional overrides.
-- The app-server collaboration-mode list uses these overrides and the resolved base model so UI and API stay aligned.
-- Built-in Plan preset keeps `medium` reasoning effort by default, while allowing per-mode override via config.
-
 ## AGENTS.md reload semantics
 
 - On each new user turn, Codex now checks whether project docs (`AGENTS.md` hierarchy) changed.

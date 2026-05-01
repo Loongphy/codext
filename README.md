@@ -30,18 +30,6 @@ cargo run --bin codex
 
 * `Ctrl+Shift+C` in the TUI composer copies the current draft to the system clipboard; `Ctrl+C` keeps its existing behavior, and empty drafts still fall back to the old `Ctrl+C` path.
 * TUI status header with model/effort, cwd, git summary, and rate-limit status.
-* Collaboration mode presets accept per-mode overrides and default to the active `/model` settings. Example:
-
-  ```toml
-  # config.toml
-  [collaboration_modes.plan]
-  model = "gpt-5.4"
-  reasoning_effort = "xhigh"
-
-  [collaboration_modes.code]
-  model = "gpt-5.4"
-  ```
-
 * TUI watches `auth.json` for external login changes and reloads auth automatically after writes settle. If a task is still running, the reload waits until the turn is idle, then refreshes rate limits and warns on account switch. When a turn stops on a usage limit, Codext queues a synthetic user turn ahead of other queued follow-ups and auto-dispatches it after the next auth reload that changes account identity; if a reload is already pending, that reload is applied first. This works well with [codex-auth](https://github.com/Loongphy/codex-auth) when you refresh or switch login state outside the TUI.
 * The synthetic recovery turn text is configurable with `[tui].usage_limit_resume_prompt`. Leave it unset to use the built-in default, or set it to `""` to disable the automatic recovery turn entirely. The built-in default is:
 

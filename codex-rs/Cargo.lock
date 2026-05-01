@@ -3097,7 +3097,6 @@ dependencies = [
  "chrono",
  "codex-app-server-protocol",
  "codex-collaboration-mode-templates",
- "codex-config",
  "codex-login",
  "codex-otel",
  "codex-protocol",

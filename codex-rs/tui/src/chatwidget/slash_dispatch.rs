@@ -69,11 +69,7 @@ impl ChatWidget {
             );
             return false;
         }
-        if let Some(mask) = collaboration_modes::plan_mask_with_overrides(
-            self.current_collaboration_mode.model(),
-            self.current_collaboration_mode.reasoning_effort(),
-            self.config.collaboration_mode_overrides().as_ref(),
-        ) {
+        if let Some(mask) = collaboration_modes::plan_mask(self.model_catalog.as_ref()) {
             self.set_collaboration_mask(mask);
             true
         } else {
