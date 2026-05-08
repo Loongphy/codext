@@ -61,9 +61,9 @@ pub struct InMemoryThreadStoreCalls {
     pub unarchive_thread: usize,
 }
 
-/// Test-only in-memory [`ThreadStore`] implementation.
+/// In-memory [`ThreadStore`] implementation for tests and debug configs.
 ///
-/// Debug/test configs can select this store by id, letting tests exercise
+/// Test and debug configs can select this store by id, letting tests exercise
 /// config-driven non-local persistence without requiring the real remote gRPC
 /// service.
 #[derive(Default)]
@@ -272,6 +272,7 @@ fn stored_thread_from_state(
         cwd: PathBuf::new(),
         cli_version: "test".to_string(),
         source: created.source.clone(),
+        thread_source: created.thread_source,
         agent_nickname: None,
         agent_role: None,
         agent_path: None,

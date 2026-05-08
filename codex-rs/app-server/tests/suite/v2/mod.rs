@@ -33,7 +33,9 @@ mod plan_item;
 mod plugin_install;
 mod plugin_list;
 mod plugin_read;
+mod plugin_share;
 mod plugin_uninstall;
+mod process_exec;
 mod rate_limits;
 mod realtime_conversation;
 #[cfg(debug_assertions)]

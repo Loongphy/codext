@@ -1,8 +1,8 @@
 use crate::can_request_original_image_detail;
-use crate::request_user_input_available_modes;
 use codex_features::Feature;
 use codex_features::Features;
 use codex_protocol::config_types::ModeKind;
+use codex_protocol::config_types::TUI_VISIBLE_COLLABORATION_MODES;
 use codex_protocol::config_types::WebSearchConfig;
 use codex_protocol::config_types::WebSearchMode;
 use codex_protocol::config_types::WindowsSandboxLevel;
@@ -31,6 +31,17 @@ pub enum ToolUserShellType {
     PowerShell,
     Sh,
     Cmd,
+}
+
+pub fn request_user_input_available_modes(features: &Features) -> Vec<ModeKind> {
+    TUI_VISIBLE_COLLABORATION_MODES
+        .into_iter()
+        .filter(|mode| {
+            mode.allows_request_user_input()
+                || (features.enabled(Feature::DefaultModeRequestUserInput)
+                    && *mode == ModeKind::Default)
+        })
+        .collect()
 }
 
 #[derive(Debug, Clone, Eq, PartialEq)]
@@ -88,7 +99,7 @@ pub struct ToolsConfig {
     pub shell_type: ConfigShellToolType,
     pub shell_command_backend: ShellCommandBackendConfig,
     pub unified_exec_shell_mode: UnifiedExecShellMode,
-    pub has_environment: bool,
+    pub environment_mode: ToolEnvironmentMode,
     pub allow_login_shell: bool,
     pub apply_patch_tool_type: Option<ApplyPatchToolType>,
     pub web_search_mode: Option<WebSearchMode>,
@@ -129,6 +140,27 @@ pub struct ToolsConfigParams<'a> {
     pub windows_sandbox_level: WindowsSandboxLevel,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ToolEnvironmentMode {
+    None,
+    Single,
+    Multiple,
+}
+
+impl ToolEnvironmentMode {
+    pub fn from_count(count: usize) -> Self {
+        match count {
+            0 => Self::None,
+            1 => Self::Single,
+            _ => Self::Multiple,
+        }
+    }
+
+    pub fn has_environment(self) -> bool {
+        !matches!(self, Self::None)
+    }
+}
+
 impl ToolsConfig {
     pub fn new(params: &ToolsConfigParams<'_>) -> Self {
         let ToolsConfigParams {
@@ -143,9 +175,9 @@ impl ToolsConfig {
         let include_apply_patch_tool = features.enabled(Feature::ApplyPatchFreeform);
         let include_code_mode = features.enabled(Feature::CodeMode);
         let include_code_mode_only = include_code_mode && features.enabled(Feature::CodeModeOnly);
-        let include_collab_tools = features.enabled(Feature::Collab);
         let include_goal_tools = features.enabled(Feature::Goals);
         let include_multi_agent_v2 = features.enabled(Feature::MultiAgentV2);
+        let include_collab_tools = include_multi_agent_v2 || features.enabled(Feature::Collab);
         let include_agent_jobs = features.enabled(Feature::SpawnCsv);
         let include_search_tool =
             model_info.supports_search_tool && features.enabled(Feature::ToolSearch);
@@ -205,7 +237,7 @@ impl ToolsConfig {
             shell_type,
             shell_command_backend,
             unified_exec_shell_mode: UnifiedExecShellMode::Direct,
-            has_environment: true,
+            environment_mode: ToolEnvironmentMode::Single,
             allow_login_shell: true,
             apply_patch_tool_type,
             web_search_mode: *web_search_mode,
@@ -306,8 +338,8 @@ impl ToolsConfig {
         self
     }
 
-    pub fn with_has_environment(mut self, has_environment: bool) -> Self {
-        self.has_environment = has_environment;
+    pub fn with_environment_mode(mut self, environment_mode: ToolEnvironmentMode) -> Self {
+        self.environment_mode = environment_mode;
         self
     }
 

@@ -16,6 +16,7 @@ use codex_config::CloudRequirementsLoader;
 use codex_core::CodexThread;
 use codex_core::ThreadManager;
 use codex_core::config::Config;
+use codex_core::resolve_installation_id;
 use codex_core::shell::Shell;
 use codex_core::shell::get_shell_by_model_provided_path;
 use codex_core::thread_store_from_config;
@@ -423,22 +424,19 @@ impl TestCodexBuilder {
         environment_manager: Arc<codex_exec_server::EnvironmentManager>,
     ) -> anyhow::Result<TestCodex> {
         let auth = self.auth.clone();
-        let thread_manager = if config.model_catalog.is_some() {
-            ThreadManager::new(
-                &config,
-                codex_core::test_support::auth_manager_from_auth(auth.clone()),
-                SessionSource::Exec,
-                Arc::clone(&environment_manager),
-                /*analytics_events_client*/ None,
-            )
-        } else {
-            codex_core::test_support::thread_manager_with_models_provider_and_home(
-                auth.clone(),
-                config.model_provider.clone(),
-                config.codex_home.to_path_buf(),
-                Arc::clone(&environment_manager),
-            )
-        };
+        let state_db = codex_core::init_state_db(&config).await;
+        let thread_store = thread_store_from_config(&config, state_db.clone());
+        let installation_id = resolve_installation_id(&config.codex_home).await?;
+        let thread_manager = ThreadManager::new(
+            &config,
+            codex_core::test_support::auth_manager_from_auth(auth.clone()),
+            SessionSource::Exec,
+            Arc::clone(&environment_manager),
+            /*analytics_events_client*/ None,
+            thread_store,
+            state_db.clone(),
+            installation_id,
+        );
         let thread_manager = Arc::new(thread_manager);
         let user_shell_override = self.user_shell_override.clone();
 
@@ -449,7 +447,6 @@ impl TestCodexBuilder {
                     codex_core::test_support::resume_thread_from_rollout_with_user_shell_override(
                         thread_manager.as_ref(),
                         config.clone(),
-                        thread_store_from_config(&config),
                         path,
                         auth_manager,
                         user_shell_override,
@@ -461,7 +458,6 @@ impl TestCodexBuilder {
                 let auth_manager = codex_core::test_support::auth_manager_from_auth(auth);
                 Box::pin(thread_manager.resume_thread_from_rollout(
                     config.clone(),
-                    thread_store_from_config(&config),
                     path,
                     auth_manager,
                     /*parent_trace*/ None,
@@ -473,18 +469,12 @@ impl TestCodexBuilder {
                     codex_core::test_support::start_thread_with_user_shell_override(
                         thread_manager.as_ref(),
                         config.clone(),
-                        thread_store_from_config(&config),
                         user_shell_override,
                     ),
                 )
                 .await?
             }
-            (None, None) => {
-                Box::pin(
-                    thread_manager.start_thread(config.clone(), thread_store_from_config(&config)),
-                )
-                .await?
-            }
+            (None, None) => Box::pin(thread_manager.start_thread(config.clone())).await?,
         };
 
         Ok(TestCodex {
@@ -648,7 +638,7 @@ impl TestCodex {
             prompt,
             AskForApproval::Never,
             PermissionProfile::Disabled,
-            Some(service_tier),
+            Some(service_tier.map(|service_tier| service_tier.request_value().to_string())),
             /*environments*/ None,
         )
         .await
@@ -710,7 +700,7 @@ impl TestCodex {
         prompt: &str,
         approval_policy: AskForApproval,
         permission_profile: PermissionProfile,
-        service_tier: Option<Option<ServiceTier>>,
+        service_tier: Option<Option<String>>,
         environments: Option<Vec<TurnEnvironmentSelection>>,
     ) -> Result<()> {
         self.submit_turn_with_context(
@@ -728,7 +718,7 @@ impl TestCodex {
         prompt: &str,
         approval_policy: AskForApproval,
         permission_profile: PermissionProfile,
-        service_tier: Option<Option<ServiceTier>>,
+        service_tier: Option<Option<String>>,
         environments: Option<Vec<TurnEnvironmentSelection>>,
     ) -> Result<()> {
         let (sandbox_policy, permission_profile) =

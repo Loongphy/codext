@@ -38,9 +38,11 @@ use codex_app_server_protocol::ThreadReadParams;
 use codex_app_server_protocol::ThreadReadResponse;
 use codex_app_server_protocol::ThreadResumeParams;
 use codex_app_server_protocol::ThreadResumeResponse;
+use codex_app_server_protocol::ThreadSource;
 use codex_app_server_protocol::ThreadStartParams;
 use codex_app_server_protocol::ThreadStartResponse;
 use codex_app_server_protocol::ThreadStatus;
+use codex_app_server_protocol::TurnItemsView;
 use codex_app_server_protocol::TurnStartParams;
 use codex_app_server_protocol::TurnStartResponse;
 use codex_app_server_protocol::TurnStatus;
@@ -71,6 +73,7 @@ use core_test_support::skip_if_no_network;
 use pretty_assertions::assert_eq;
 use serde_json::json;
 use std::fs::FileTimes;
+use std::io::Write;
 use std::path::Path;
 use std::path::PathBuf;
 use std::process::Command;
@@ -238,14 +241,19 @@ async fn thread_resume_tracks_thread_initialized_analytics() -> Result<()> {
     create_config_toml_with_chatgpt_base_url(codex_home.path(), &server.uri(), &server.uri())?;
     mount_analytics_capture(&server, codex_home.path()).await?;
 
-    let conversation_id = create_fake_rollout_with_text_elements(
+    let conversation_id = create_fake_rollout(
         codex_home.path(),
         "2025-01-05T12-00-00",
         "2025-01-05T12:00:00Z",
         "Saved user message",
-        Vec::new(),
         Some("mock_provider"),
         /*git_info*/ None,
+    )?;
+    set_thread_source_on_fake_rollout(
+        codex_home.path(),
+        "2025-01-05T12-00-00",
+        &conversation_id,
+        "user",
     )?;
 
     let mut mcp = McpProcess::new_without_managed_config(codex_home.path()).await?;
@@ -263,10 +271,35 @@ async fn thread_resume_tracks_thread_initialized_analytics() -> Result<()> {
     )
     .await??;
     let ThreadResumeResponse { thread, .. } = to_response::<ThreadResumeResponse>(resume_resp)?;
+    assert!(
+        !thread.session_id.is_empty(),
+        "session id should not be empty"
+    );
+    assert_eq!(thread.thread_source, Some(ThreadSource::User));
 
     let payload = wait_for_analytics_payload(&server, DEFAULT_READ_TIMEOUT).await?;
     let event = thread_initialized_event(&payload)?;
-    assert_basic_thread_initialized_event(event, &thread.id, "gpt-5.3-codex", "resumed");
+    assert_basic_thread_initialized_event(event, &thread.id, "gpt-5.3-codex", "resumed", "user");
+    assert_eq!(event["event_params"]["thread_source"], "user");
+    Ok(())
+}
+
+fn set_thread_source_on_fake_rollout(
+    codex_home: &std::path::Path,
+    filename_ts: &str,
+    thread_id: &str,
+    thread_source: &str,
+) -> Result<()> {
+    let path = rollout_path(codex_home, filename_ts, thread_id);
+    let contents = std::fs::read_to_string(&path)?;
+    let mut lines = contents.lines();
+    let session_meta = lines
+        .next()
+        .ok_or_else(|| anyhow::anyhow!("fake rollout missing session meta"))?;
+    let mut session_meta: serde_json::Value = serde_json::from_str(session_meta)?;
+    session_meta["payload"]["thread_source"] = serde_json::json!(thread_source);
+    let remaining = lines.collect::<Vec<_>>().join("\n");
+    std::fs::write(&path, format!("{session_meta}\n{remaining}\n"))?;
     Ok(())
 }
 
@@ -384,7 +417,7 @@ async fn thread_resume_can_skip_turns_for_metadata_only_resume() -> Result<()> {
 }
 
 #[tokio::test]
-async fn thread_resume_emits_active_goal_update_before_continuation() -> Result<()> {
+async fn thread_resume_keeps_paused_goal_paused() -> Result<()> {
     let server = create_mock_responses_server_repeating_assistant("Done").await;
     let codex_home = TempDir::new()?;
     create_config_toml(codex_home.path(), &server.uri())?;
@@ -476,12 +509,12 @@ async fn thread_resume_emits_active_goal_update_before_continuation() -> Result<
     let ServerNotification::ThreadGoalUpdated(notification) = notification else {
         anyhow::bail!("expected thread goal update notification");
     };
-    assert_eq!(notification.goal.status, ThreadGoalStatus::Active);
+    assert_eq!(notification.goal.status, ThreadGoalStatus::Paused);
     assert!(
         !mcp.pending_notification_methods()
             .iter()
             .any(|method| method == "turn/started"),
-        "goal continuation should start only after the resume goal snapshot"
+        "paused goal should not continue after thread resume"
     );
 
     Ok(())
@@ -1177,6 +1210,7 @@ stream_max_retries = 0
         originator: "codex".to_string(),
         cli_version: "0.0.0".to_string(),
         source: RolloutSessionSource::Cli,
+        thread_source: None,
         agent_path: None,
         agent_nickname: None,
         agent_role: None,
@@ -1628,6 +1662,7 @@ async fn thread_resume_rejects_history_when_thread_is_running() -> Result<()> {
     .await??;
     let TurnStartResponse { turn: running_turn } =
         to_response::<TurnStartResponse>(running_turn_resp)?;
+    assert_eq!(running_turn.items_view, TurnItemsView::NotLoaded);
     timeout(
         DEFAULT_READ_TIMEOUT,
         primary.read_stream_until_notification_message("turn/started"),
@@ -1669,7 +1704,7 @@ async fn thread_resume_rejects_history_when_thread_is_running() -> Result<()> {
 }
 
 #[tokio::test]
-async fn thread_resume_rejects_mismatched_path_when_thread_is_running() -> Result<()> {
+async fn thread_resume_uses_path_over_thread_id_when_thread_is_running() -> Result<()> {
     let server = responses::start_mock_server().await;
     let first_body = responses::sse(vec![
         responses::ev_response_created("resp-1"),
@@ -1749,23 +1784,70 @@ async fn thread_resume_rejects_mismatched_path_when_thread_is_running() -> Resul
     )
     .await??;
 
-    let resume_id = primary
+    let other_thread_id = ThreadId::new().to_string();
+    let stale_path = rollout_path(codex_home.path(), "2025-01-01T00-00-00", &thread_id);
+    std::fs::create_dir_all(stale_path.parent().expect("stale path parent"))?;
+    let thread_uuid = Uuid::parse_str(&thread_id)?;
+    let mut stale_file = std::fs::File::create(&stale_path)?;
+    let stale_meta = json!({
+        "timestamp": "2025-01-01T00:00:00Z",
+        "type": "session_meta",
+        "payload": {
+            "id": thread_uuid,
+            "timestamp": "2025-01-01T00:00:00Z",
+            "cwd": codex_home.path(),
+            "originator": "test_originator",
+            "cli_version": "test_version",
+            "source": "cli",
+            "model_provider": "test-provider",
+        },
+    });
+    writeln!(stale_file, "{stale_meta}")?;
+    let stale_user_event = json!({
+        "timestamp": "2025-01-01T00:00:00Z",
+        "type": "event_msg",
+        "payload": {
+            "type": "user_message",
+            "message": "stale history",
+            "kind": "plain",
+        },
+    });
+    writeln!(stale_file, "{stale_user_event}")?;
+
+    let stale_resume_id = primary
         .send_thread_resume_request(ThreadResumeParams {
-            thread_id: thread_id.clone(),
-            path: Some(PathBuf::from("/tmp/does-not-match-running-rollout.jsonl")),
+            thread_id: other_thread_id.clone(),
+            path: Some(stale_path),
             ..Default::default()
         })
         .await?;
-    let resume_err: JSONRPCError = timeout(
+    let stale_resume_err: JSONRPCError = timeout(
         DEFAULT_READ_TIMEOUT,
-        primary.read_stream_until_error_message(RequestId::Integer(resume_id)),
+        primary.read_stream_until_error_message(RequestId::Integer(stale_resume_id)),
     )
     .await??;
     assert!(
-        resume_err.error.message.contains("mismatched path"),
+        stale_resume_err.error.message.contains("stale path"),
         "unexpected resume error: {}",
-        resume_err.error.message
+        stale_resume_err.error.message
     );
+
+    let resume_by_path_id = primary
+        .send_thread_resume_request(ThreadResumeParams {
+            thread_id: other_thread_id.clone(),
+            path: thread.path,
+            ..Default::default()
+        })
+        .await?;
+    let resume_by_path_resp: JSONRPCResponse = timeout(
+        DEFAULT_READ_TIMEOUT,
+        primary.read_stream_until_response_message(RequestId::Integer(resume_by_path_id)),
+    )
+    .await??;
+    let ThreadResumeResponse {
+        thread: resumed, ..
+    } = to_response::<ThreadResumeResponse>(resume_by_path_resp)?;
+    assert_eq!(resumed.id, thread_id);
 
     primary
         .interrupt_turn_and_wait_for_aborted(thread_id, running_turn.id, DEFAULT_READ_TIMEOUT)
@@ -2463,7 +2545,7 @@ async fn thread_resume_surfaces_cloud_requirements_load_errors() -> Result<()> {
 }
 
 #[tokio::test]
-async fn thread_resume_prefers_path_over_thread_id() -> Result<()> {
+async fn thread_resume_uses_path_over_invalid_thread_id() -> Result<()> {
     let server = create_mock_responses_server_repeating_assistant("Done").await;
     let codex_home = TempDir::new()?;
     create_config_toml(codex_home.path(), &server.uri())?;
@@ -2523,13 +2605,6 @@ async fn thread_resume_prefers_path_over_thread_id() -> Result<()> {
         thread: resumed, ..
     } = to_response::<ThreadResumeResponse>(resume_resp)?;
     assert_eq!(resumed.id, thread.id);
-    let resumed_path = resumed.path.as_ref().expect("resumed thread path");
-    let original_path = thread.path.as_ref().expect("original thread path");
-    assert_eq!(
-        normalized_existing_path(resumed_path)?,
-        normalized_existing_path(original_path)?
-    );
-    assert_eq!(resumed.status, ThreadStatus::Idle);
 
     Ok(())
 }

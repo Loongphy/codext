@@ -16,6 +16,7 @@ use codex_protocol::protocol::SandboxPolicy;
 use codex_protocol::protocol::SessionSource;
 use codex_protocol::protocol::SubAgentSource;
 use codex_protocol::protocol::ThreadMemoryMode;
+use codex_protocol::protocol::ThreadSource;
 
 use super::proto;
 use crate::GitInfoPatch;
@@ -25,6 +26,7 @@ use crate::StoredThread;
 use crate::StoredThreadHistory;
 use crate::ThreadEventPersistenceMode;
 use crate::ThreadMetadataPatch;
+use crate::ThreadPersistenceMetadata;
 use crate::ThreadSortKey;
 use crate::ThreadStoreError;
 use crate::ThreadStoreResult;
@@ -186,6 +188,12 @@ pub(super) fn dynamic_tools_json(
     serialize_json_vec(dynamic_tools, "dynamic_tool")
 }
 
+pub(super) fn thread_persistence_metadata_json(
+    metadata: &ThreadPersistenceMetadata,
+) -> ThreadStoreResult<String> {
+    serialize_json(metadata, "thread_persistence_metadata")
+}
+
 pub(super) fn rollout_items_json(items: &[RolloutItem]) -> ThreadStoreResult<Vec<String>> {
     serialize_json_vec(items, "rollout_item")
 }
@@ -289,6 +297,11 @@ pub(super) fn stored_thread_from_proto(
         cwd: PathBuf::from(thread.cwd),
         cli_version: thread.cli_version,
         source,
+        thread_source: thread
+            .thread_source
+            .map(|thread_source| thread_source.parse::<ThreadSource>())
+            .transpose()
+            .map_err(|error| ThreadStoreError::Internal { message: error })?,
         agent_nickname: thread.agent_nickname,
         agent_role: thread.agent_role,
         agent_path: thread.agent_path,
@@ -333,6 +346,7 @@ pub(super) fn stored_thread_to_proto(thread: StoredThread) -> proto::StoredThrea
         cwd: thread.cwd.to_string_lossy().into_owned(),
         cli_version: thread.cli_version,
         source: Some(proto_session_source(&thread.source)),
+        thread_source: thread.thread_source.map(|source| source.to_string()),
         git_info: thread.git_info.map(git_info_to_proto),
         agent_nickname: thread.agent_nickname,
         agent_role: thread.agent_role,
