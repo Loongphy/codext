@@ -26,13 +26,6 @@ CODEX_PLATFORM_PACKAGES: dict[str, dict[str, str]] = {
         "os": "linux",
         "cpu": "x64",
     },
-    "codex-linux-arm64": {
-        "npm_name": "@loongphy/codext-linux-arm64",
-        "npm_tag": "linux-arm64",
-        "target_triple": "aarch64-unknown-linux-musl",
-        "os": "linux",
-        "cpu": "arm64",
-    },
     "codex-darwin-x64": {
         "npm_name": "@loongphy/codext-darwin-x64",
         "npm_tag": "darwin-x64",
@@ -63,7 +56,6 @@ PACKAGE_EXPANSIONS: dict[str, list[str]] = {
 PACKAGE_NATIVE_COMPONENTS: dict[str, list[str]] = {
     "codex": [],
     "codex-linux-x64": ["codex", "rg"],
-    "codex-linux-arm64": ["codex", "rg"],
     "codex-darwin-x64": ["codex", "rg"],
     "codex-darwin-arm64": ["codex", "rg"],
     "codex-win32-x64": ["codex", "rg", "codex-windows-sandbox-setup", "codex-command-runner"],
