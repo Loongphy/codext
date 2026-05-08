@@ -18,6 +18,7 @@
 - 顶层发布包名：`@loongphy/codext`
 - 平台包名：
   - `@loongphy/codext-linux-x64`
+  - `@loongphy/codext-linux-arm64`
   - `@loongphy/codext-darwin-x64`
   - `@loongphy/codext-darwin-arm64`
   - `@loongphy/codext-win32-x64`
@@ -37,6 +38,25 @@
 - 因此所有用户可见文案、CLI 提示、tooltips、README/技能文档里涉及安装后命令名时，也应统一写成 `codext`；例如应显示 `codext resume <session>`，而不是 `codex resume <session>`
 
 如果 upstream / 新 tag 没有明确要求变更这些名称，就不要在 reapply 时改动它们。
+
+## Release platform matrix
+
+codext release / npm reapply 必须保留这些平台，缺一项都视为发包链路不完整：
+
+| Platform | Rust target | Release asset | npm platform package | Node `process.arch` |
+| --- | --- | --- | --- | --- |
+| Linux x64 | `x86_64-unknown-linux-musl` | `codext-linux-x64-${VERSION}.tar.gz` | `@loongphy/codext-linux-x64` | `x64` |
+| Linux arm64 | `aarch64-unknown-linux-musl` | `codext-linux-arm64-${VERSION}.tar.gz` | `@loongphy/codext-linux-arm64` | `arm64` |
+| macOS x64 | `x86_64-apple-darwin` | `codext-darwin-x64-${VERSION}.tar.gz` | `@loongphy/codext-darwin-x64` | `x64` |
+| macOS arm64 | `aarch64-apple-darwin` | `codext-darwin-arm64-${VERSION}.tar.gz` | `@loongphy/codext-darwin-arm64` | `arm64` |
+| Windows x64 | `x86_64-pc-windows-msvc` | `codext-win32-x64-${VERSION}.zip` | `@loongphy/codext-win32-x64` | `x64` |
+
+Linux arm64 支持必须同时落在以下位置：
+
+- `.github/workflows/rust-release.yml` 的 Unix build matrix、musl setup 条件、release asset staging、npm vendor tree 和 npm tarball package list。
+- `codex-cli/bin/codex.js` 的 `aarch64-unknown-linux-musl` 到 `@loongphy/codext-linux-arm64` 映射，以及 Linux `process.arch === "arm64"` 分支。
+- `codex-cli/scripts/build_npm_package.py` 的 `codex-linux-arm64` 平台包配置和 native component 配置。
+- `codex-cli/scripts/install_native_deps.py` 的 binary target 列表和 ripgrep `linux-aarch64` 映射。
 
 ## Must execute on the new tag branch
 
