@@ -1,4 +1,5 @@
 use super::cache::ModelsCacheManager;
+use crate::collaboration_mode_presets::CollaborationModesConfig;
 use crate::collaboration_mode_presets::builtin_collaboration_mode_presets;
 use crate::config::ModelsManagerConfig;
 use crate::model_info;
@@ -246,7 +247,7 @@ impl ModelsManager for OpenAiModelsManager {
     }
 
     fn list_collaboration_modes(&self) -> Vec<CollaborationModeMask> {
-        builtin_collaboration_mode_presets()
+        builtin_collaboration_mode_presets(CollaborationModesConfig::default())
     }
 
     async fn refresh_if_new_etag(&self, etag: String) {
@@ -381,7 +382,7 @@ impl ModelsManager for StaticModelsManager {
     }
 
     fn list_collaboration_modes(&self) -> Vec<CollaborationModeMask> {
-        builtin_collaboration_mode_presets()
+        builtin_collaboration_mode_presets(CollaborationModesConfig::default())
     }
 
     async fn refresh_if_new_etag(&self, _etag: String) {}
