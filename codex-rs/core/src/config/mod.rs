@@ -37,7 +37,6 @@ use codex_config::profile_toml::ConfigProfile;
 use codex_config::sandbox_mode_requirement_for_permission_profile;
 use codex_config::types::ApprovalsReviewer;
 use codex_config::types::AuthCredentialsStoreMode;
-use codex_config::types::CollaborationModeOverrides;
 use codex_config::types::DEFAULT_OTEL_ENVIRONMENT;
 use codex_config::types::History;
 use codex_config::types::McpServerConfig;
@@ -1091,14 +1090,6 @@ impl Config {
             self.features.enabled(Feature::PluginHooks),
             self.chatgpt_base_url.clone(),
         )
-    }
-
-    pub fn collaboration_mode_overrides(&self) -> Option<CollaborationModeOverrides> {
-        self.config_layer_stack
-            .effective_config()
-            .try_into()
-            .ok()
-            .and_then(|config: ConfigToml| config.collaboration_modes)
     }
 
     pub async fn to_mcp_config(
