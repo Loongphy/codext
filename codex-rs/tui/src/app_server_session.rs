@@ -311,20 +311,6 @@ impl AppServerSession {
             .wrap_err("account/read failed while reloading auth from storage")
     }
 
-    pub(crate) async fn reload_account_from_storage(&mut self) -> Result<GetAccountResponse> {
-        let account_request_id = self.next_request_id();
-        self.client
-            .request_typed(ClientRequest::GetAccount {
-                request_id: account_request_id,
-                params: GetAccountParams {
-                    refresh_token: false,
-                    reload_auth_from_storage: true,
-                },
-            })
-            .await
-            .wrap_err("account/read failed while reloading auth from storage")
-    }
-
     pub(crate) async fn external_agent_config_detect(
         &mut self,
         params: ExternalAgentConfigDetectParams,

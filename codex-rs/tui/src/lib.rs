@@ -86,7 +86,6 @@ mod app_server_approval_conversions;
 mod app_server_session;
 mod approval_events;
 mod ascii_animation;
-mod auth_watch;
 #[cfg(not(target_os = "linux"))]
 mod audio_device;
 mod auth_watch;
@@ -129,7 +128,6 @@ mod frames;
 mod get_git_diff;
 mod git_status;
 mod goal_display;
-mod git_status;
 mod history_cell;
 mod ide_context;
 pub(crate) mod insert_history;
