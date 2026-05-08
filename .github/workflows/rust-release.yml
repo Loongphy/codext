@@ -26,6 +26,8 @@ jobs:
         include:
           - runner: ubuntu-24.04
             target: x86_64-unknown-linux-musl
+          - runner: ubuntu-24.04
+            target: aarch64-unknown-linux-musl
           - runner: macos-15-intel
             target: x86_64-apple-darwin
           - runner: macos-15
@@ -47,7 +49,7 @@ jobs:
           targets: ${{ matrix.target }}
 
       - name: Use hermetic Cargo home
-        if: ${{ matrix.target == 'x86_64-unknown-linux-musl' }}
+        if: ${{ contains(matrix.target, 'unknown-linux-musl') }}
         shell: bash
         run: |
           set -euo pipefail
@@ -58,7 +60,7 @@ jobs:
           : > "${cargo_home}/config.toml"
 
       - name: Cache Cargo home and target dir
-        if: ${{ matrix.target == 'x86_64-unknown-linux-musl' }}
+        if: ${{ contains(matrix.target, 'unknown-linux-musl') }}
         uses: actions/cache@v4
         with:
           path: |
@@ -70,7 +72,7 @@ jobs:
             ${{ runner.os }}-${{ matrix.target }}-cargo-
 
       - name: Cache Cargo home and target dir
-        if: ${{ matrix.target != 'x86_64-unknown-linux-musl' }}
+        if: ${{ !contains(matrix.target, 'unknown-linux-musl') }}
         uses: actions/cache@v4
         with:
           path: |
@@ -82,20 +84,20 @@ jobs:
             ${{ runner.os }}-${{ matrix.target }}-cargo-
 
       - name: Install Zig
-        if: ${{ matrix.target == 'x86_64-unknown-linux-musl' }}
+        if: ${{ contains(matrix.target, 'unknown-linux-musl') }}
         uses: mlugg/setup-zig@d1434d08867e3ee9daa34448df10607b98908d29
         with:
           version: 0.14.0
 
       - name: Install musl build tools
-        if: ${{ matrix.target == 'x86_64-unknown-linux-musl' }}
+        if: ${{ contains(matrix.target, 'unknown-linux-musl') }}
         env:
           TARGET: ${{ matrix.target }}
         shell: bash
         run: bash "${GITHUB_WORKSPACE}/.github/scripts/install-musl-build-tools.sh"
 
       - name: Configure rustc UBSan wrapper
-        if: ${{ matrix.target == 'x86_64-unknown-linux-musl' }}
+        if: ${{ contains(matrix.target, 'unknown-linux-musl') }}
         shell: bash
         run: |
           set -euo pipefail
@@ -118,7 +120,7 @@ jobs:
           echo "RUSTC_WORKSPACE_WRAPPER=" >> "$GITHUB_ENV"
 
       - name: Clear sanitizer flags
-        if: ${{ matrix.target == 'x86_64-unknown-linux-musl' }}
+        if: ${{ contains(matrix.target, 'unknown-linux-musl') }}
         shell: bash
         run: |
           set -euo pipefail
@@ -136,7 +138,7 @@ jobs:
           echo "CARGO_TARGET_AARCH64_UNKNOWN_LINUX_MUSL_RUSTFLAGS=" >> "$GITHUB_ENV"
 
       - name: Configure musl rusty_v8 artifact overrides
-        if: ${{ matrix.target == 'x86_64-unknown-linux-musl' }}
+        if: ${{ contains(matrix.target, 'unknown-linux-musl') }}
         env:
           TARGET: ${{ matrix.target }}
         shell: bash
@@ -276,6 +278,11 @@ jobs:
           chmod +x "${linux_stage}/codext"
           tar -C "${linux_stage}" -czf "${out_dir}/codext-linux-x64-${VERSION}.tar.gz" codext
 
+          linux_arm64_stage="$(mktemp -d "${RUNNER_TEMP}/release-linux-arm64-XXXXXX")"
+          cp "${artifacts_root}/codex-bin-aarch64-unknown-linux-musl/codex" "${linux_arm64_stage}/codext"
+          chmod +x "${linux_arm64_stage}/codext"
+          tar -C "${linux_arm64_stage}" -czf "${out_dir}/codext-linux-arm64-${VERSION}.tar.gz" codext
+
           darwin_x64_stage="$(mktemp -d "${RUNNER_TEMP}/release-darwin-x64-XXXXXX")"
           cp "${artifacts_root}/codex-bin-x86_64-apple-darwin/codex" "${darwin_x64_stage}/codext"
           chmod +x "${darwin_x64_stage}/codext"
@@ -366,12 +373,15 @@ jobs:
 
           mkdir -p \
             "${vendor_root}/x86_64-unknown-linux-musl/codex" \
+            "${vendor_root}/aarch64-unknown-linux-musl/codex" \
             "${vendor_root}/x86_64-apple-darwin/codex" \
             "${vendor_root}/aarch64-apple-darwin/codex" \
             "${vendor_root}/x86_64-pc-windows-msvc/codex"
 
           cp "${artifacts_root}/codex-bin-x86_64-unknown-linux-musl/codex" \
             "${vendor_root}/x86_64-unknown-linux-musl/codex/codex"
+          cp "${artifacts_root}/codex-bin-aarch64-unknown-linux-musl/codex" \
+            "${vendor_root}/aarch64-unknown-linux-musl/codex/codex"
           cp "${artifacts_root}/codex-bin-x86_64-apple-darwin/codex" \
             "${vendor_root}/x86_64-apple-darwin/codex/codex"
           cp "${artifacts_root}/codex-bin-aarch64-apple-darwin/codex" \
@@ -401,6 +411,7 @@ jobs:
           packages=(
             codex
             codex-linux-x64
+            codex-linux-arm64
             codex-darwin-x64
             codex-darwin-arm64
             codex-win32-x64

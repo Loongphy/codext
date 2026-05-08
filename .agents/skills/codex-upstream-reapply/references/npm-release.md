@@ -18,6 +18,7 @@
 - 顶层发布包名：`@loongphy/codext`
 - 平台包名：
   - `@loongphy/codext-linux-x64`
+  - `@loongphy/codext-linux-arm64`
   - `@loongphy/codext-darwin-x64`
   - `@loongphy/codext-darwin-arm64`
   - `@loongphy/codext-win32-x64`
