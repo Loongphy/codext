@@ -26,8 +26,14 @@ jobs:
       fail-fast: false
       matrix:
         include:
+          - runner: ubuntu-24.04
+            target: x86_64-unknown-linux-musl
           - runner: ubuntu-24.04-arm
             target: aarch64-unknown-linux-musl
+          - runner: macos-15-intel
+            target: x86_64-apple-darwin
+          - runner: macos-15
+            target: aarch64-apple-darwin
 
     steps:
       - uses: actions/checkout@v6
@@ -173,7 +179,6 @@ jobs:
 
   build-windows:
     name: Build - windows-2025 - ${{ matrix.target }}
-    if: ${{ false }}
     runs-on: windows-2025
     timeout-minutes: 90
     permissions:
@@ -225,7 +230,6 @@ jobs:
           if-no-files-found: error
 
   publish-release:
-    if: ${{ false }}
     needs:
       - build-unix
       - build-windows
@@ -286,6 +290,11 @@ jobs:
           chmod +x "${linux_stage}/codext"
           tar -C "${linux_stage}" -czf "${out_dir}/codext-linux-x64-${VERSION}.tar.gz" codext
 
+          linux_arm64_stage="$(mktemp -d "${RUNNER_TEMP}/release-linux-arm64-XXXXXX")"
+          cp "${artifacts_root}/codex-bin-aarch64-unknown-linux-musl/codex" "${linux_arm64_stage}/codext"
+          chmod +x "${linux_arm64_stage}/codext"
+          tar -C "${linux_arm64_stage}" -czf "${out_dir}/codext-linux-arm64-${VERSION}.tar.gz" codext
+
           darwin_x64_stage="$(mktemp -d "${RUNNER_TEMP}/release-darwin-x64-XXXXXX")"
           cp "${artifacts_root}/codex-bin-x86_64-apple-darwin/codex" "${darwin_x64_stage}/codext"
           chmod +x "${darwin_x64_stage}/codext"
@@ -334,7 +343,6 @@ jobs:
             --clobber
 
   publish-npm:
-    if: ${{ false }}
     needs:
       - build-unix
       - build-windows
@@ -377,12 +385,15 @@ jobs:
 
           mkdir -p \
             "${vendor_root}/x86_64-unknown-linux-musl/codex" \
+            "${vendor_root}/aarch64-unknown-linux-musl/codex" \
             "${vendor_root}/x86_64-apple-darwin/codex" \
             "${vendor_root}/aarch64-apple-darwin/codex" \
             "${vendor_root}/x86_64-pc-windows-msvc/codex"
 
           cp "${artifacts_root}/codex-bin-x86_64-unknown-linux-musl/codex" \
             "${vendor_root}/x86_64-unknown-linux-musl/codex/codex"
+          cp "${artifacts_root}/codex-bin-aarch64-unknown-linux-musl/codex" \
+            "${vendor_root}/aarch64-unknown-linux-musl/codex/codex"
           cp "${artifacts_root}/codex-bin-x86_64-apple-darwin/codex" \
             "${vendor_root}/x86_64-apple-darwin/codex/codex"
           cp "${artifacts_root}/codex-bin-aarch64-apple-darwin/codex" \
@@ -412,6 +423,7 @@ jobs:
           packages=(
             codex
             codex-linux-x64
+            codex-linux-arm64
             codex-darwin-x64
             codex-darwin-arm64
             codex-win32-x64
