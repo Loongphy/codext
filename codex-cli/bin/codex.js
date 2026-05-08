@@ -14,6 +14,7 @@ const require = createRequire(import.meta.url);
 
 const PLATFORM_PACKAGE_BY_TARGET = {
   "x86_64-unknown-linux-musl": "@loongphy/codext-linux-x64",
+  "aarch64-unknown-linux-musl": "@loongphy/codext-linux-arm64",
   "x86_64-apple-darwin": "@loongphy/codext-darwin-x64",
   "aarch64-apple-darwin": "@loongphy/codext-darwin-arm64",
   "x86_64-pc-windows-msvc": "@loongphy/codext-win32-x64",
@@ -28,6 +29,9 @@ switch (platform) {
     switch (arch) {
       case "x64":
         targetTriple = "x86_64-unknown-linux-musl";
+        break;
+      case "arm64":
+        targetTriple = "aarch64-unknown-linux-musl";
         break;
       default:
         break;
