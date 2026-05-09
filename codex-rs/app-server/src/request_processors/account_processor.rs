@@ -806,6 +806,15 @@ impl AccountRequestProcessor {
     ) -> Result<GetAccountResponse, JSONRPCErrorError> {
         let do_refresh = params.refresh_token;
 
+        if params.reload_auth_from_storage {
+            match self.auth_manager.reload_with_status().await {
+                codex_login::AuthReloadStatus::Reloaded { .. } => {}
+                codex_login::AuthReloadStatus::Failed => {
+                    return Err(internal_error("failed to reload auth from storage"));
+                }
+            }
+        }
+
         self.refresh_token_if_requested(do_refresh).await;
 
         let provider = create_model_provider(

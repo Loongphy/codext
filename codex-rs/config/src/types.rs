@@ -706,6 +706,14 @@ pub struct Tui {
     #[serde(default)]
     pub keymap: TuiKeymap,
 
+    /// Optional synthetic user-turn prompt injected after a turn fails with
+    /// `UsageLimitExceeded`.
+    ///
+    /// When unset, Codex uses the built-in default recovery prompt.
+    /// When set to an empty string, Codex disables this automatic recovery turn.
+    #[serde(default)]
+    pub usage_limit_resume_prompt: Option<String>,
+
     /// Startup tooltip availability NUX state persisted by the TUI.
     #[serde(default)]
     pub model_availability_nux: ModelAvailabilityNuxConfig,

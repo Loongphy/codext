@@ -88,6 +88,7 @@ mod approval_events;
 mod ascii_animation;
 #[cfg(not(target_os = "linux"))]
 mod audio_device;
+mod auth_watch;
 #[cfg(target_os = "linux")]
 #[allow(dead_code)]
 mod audio_device {
@@ -125,6 +126,7 @@ mod external_editor;
 mod file_search;
 mod frames;
 mod get_git_diff;
+mod git_status;
 mod goal_display;
 mod history_cell;
 mod ide_context;

@@ -16,7 +16,9 @@ use crate::app_event::WindowsSandboxEnableMode;
 use crate::app_event_sender::AppEventSender;
 use crate::app_server_session::AppServerSession;
 use crate::app_server_session::AppServerStartedThread;
+use crate::app_server_session::account_state_from_get_account_response;
 use crate::app_server_session::app_server_rate_limit_snapshots;
+use crate::auth_watch::AuthWatch;
 use crate::bottom_pane::AppLinkViewParams;
 use crate::bottom_pane::ApprovalRequest;
 use crate::bottom_pane::FeedbackAudience;
@@ -63,6 +65,7 @@ use crate::render::renderable::Renderable;
 use crate::resume_picker::SessionSelection;
 use crate::resume_picker::SessionTarget;
 use crate::session_state::ThreadSessionState;
+use crate::status::StatusAccountDisplay;
 #[cfg(test)]
 use crate::test_support::PathBufExt;
 #[cfg(test)]
@@ -135,6 +138,7 @@ use codex_models_manager::model_presets::HIDE_GPT_5_1_CODEX_MAX_MIGRATION_PROMPT
 use codex_models_manager::model_presets::HIDE_GPT5_1_MIGRATION_PROMPT_CONFIG;
 use codex_otel::SessionTelemetry;
 use codex_protocol::ThreadId;
+use codex_protocol::account::PlanType;
 use codex_protocol::config_types::Personality;
 #[cfg(target_os = "windows")]
 use codex_protocol::config_types::WindowsSandboxLevel;
@@ -216,6 +220,8 @@ use self::thread_events::*;
 
 const EXTERNAL_EDITOR_HINT: &str = "Save and close external editor to continue.";
 const THREAD_EVENT_CHANNEL_CAPACITY: usize = 32768;
+const AUTH_RELOAD_RETRY_DELAY: Duration = Duration::from_secs(5);
+const AUTH_RELOAD_MAX_ATTEMPTS: u8 = 3;
 
 enum ThreadInteractiveRequest {
     AppLink(AppLinkViewParams),
@@ -429,12 +435,70 @@ struct InitialHistoryReplayBuffer {
     render_from_transcript_tail: bool,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct AuthIdentity {
+    email: Option<String>,
+    plan_type: Option<PlanType>,
+    has_chatgpt_account: bool,
+}
+
+impl AuthIdentity {
+    fn from_chat_widget(chat_widget: &ChatWidget) -> Self {
+        let email = match chat_widget.status_account_display() {
+            Some(StatusAccountDisplay::ChatGpt { email, .. }) => email.clone(),
+            Some(StatusAccountDisplay::ApiKey) | None => None,
+        };
+        Self {
+            email,
+            plan_type: chat_widget.current_plan_type(),
+            has_chatgpt_account: chat_widget.has_chatgpt_account(),
+        }
+    }
+
+    fn from_parts(
+        status_account_display: &Option<StatusAccountDisplay>,
+        plan_type: Option<PlanType>,
+        has_chatgpt_account: bool,
+    ) -> Self {
+        let email = match status_account_display {
+            Some(StatusAccountDisplay::ChatGpt { email, .. }) => email.clone(),
+            Some(StatusAccountDisplay::ApiKey) | None => None,
+        };
+        Self {
+            email,
+            plan_type,
+            has_chatgpt_account,
+        }
+    }
+
+    fn display_label(&self) -> String {
+        if !self.has_chatgpt_account {
+            return "API key".to_string();
+        }
+        let email = self.email.as_deref().unwrap_or("unknown email");
+        let plan = self
+            .plan_type
+            .map(crate::status::plan_type_display_name)
+            .unwrap_or_else(|| "unknown plan".to_string());
+        format!("{email} ({plan})")
+    }
+}
+
+fn auth_change_message(previous: &AuthIdentity, next: &AuthIdentity) -> String {
+    format!(
+        "auth.json changed. Reloaded account from {} to {}.",
+        previous.display_label(),
+        next.display_label()
+    )
+}
+
 pub(crate) struct App {
     model_catalog: Arc<ModelCatalog>,
     pub(crate) session_telemetry: SessionTelemetry,
     pub(crate) app_event_tx: AppEventSender,
     pub(crate) chat_widget: ChatWidget,
     workspace_command_runner: Option<WorkspaceCommandRunner>,
+    _auth_watch: Option<AuthWatch>,
     /// Config is stored here so we can recreate ChatWidgets as needed.
     pub(crate) config: Config,
     pub(crate) state_db: Option<StateDbHandle>,
@@ -567,6 +631,65 @@ fn active_turn_steer_race(error: &TypedRequestError) -> Option<ActiveTurnSteerRa
 }
 
 impl App {
+    fn schedule_auth_reload_retry(&self, attempt: u8) {
+        let app_event_tx = self.app_event_tx.clone();
+        tokio::spawn(async move {
+            tokio::time::sleep(AUTH_RELOAD_RETRY_DELAY).await;
+            app_event_tx.send(AppEvent::AuthFileChangedRetry { attempt });
+        });
+    }
+
+    pub(crate) async fn handle_auth_file_changed(
+        &mut self,
+        app_server: &mut AppServerSession,
+        attempt: u8,
+    ) {
+        if self.chat_widget.is_task_running() {
+            self.chat_widget.defer_auth_reload_until_idle(attempt);
+            return;
+        }
+
+        let previous_identity = AuthIdentity::from_chat_widget(&self.chat_widget);
+        match app_server.reload_account_from_storage().await {
+            Ok(account) => {
+                let (status_account_display, plan_type, has_chatgpt_account) =
+                    account_state_from_get_account_response(&account);
+                let next_identity = AuthIdentity::from_parts(
+                    &status_account_display,
+                    plan_type,
+                    has_chatgpt_account,
+                );
+                let identity_changed = previous_identity != next_identity;
+                self.chat_widget.update_account_state(
+                    status_account_display,
+                    plan_type,
+                    has_chatgpt_account,
+                );
+                if identity_changed {
+                    self.chat_widget.handle_auth_identity_changed();
+                    self.chat_widget
+                        .add_to_history(history_cell::new_warning_event(auth_change_message(
+                            &previous_identity,
+                            &next_identity,
+                        )));
+                }
+                self.chat_widget.on_auth_reload_completed(identity_changed);
+                self.refresh_rate_limits(app_server, RateLimitRefreshOrigin::StartupPrefetch);
+            }
+            Err(err) => {
+                if attempt < AUTH_RELOAD_MAX_ATTEMPTS {
+                    self.schedule_auth_reload_retry(attempt.saturating_add(1));
+                    return;
+                }
+                tracing::warn!(%err, "failed to reload auth from storage");
+                self.chat_widget.on_auth_reload_completed(/*identity_changed*/ false);
+                self.chat_widget.add_to_history(history_cell::new_warning_event(
+                    "Failed to reload auth after auth.json changed.".to_string(),
+                ));
+            }
+        }
+    }
+
     pub fn chatwidget_init_for_forked_or_resumed_thread(
         &self,
         tui: &mut tui::Tui,
@@ -621,6 +744,12 @@ impl App {
         use tokio_stream::StreamExt;
         let (app_event_tx, mut app_event_rx) = unbounded_channel();
         let app_event_tx = AppEventSender::new(app_event_tx);
+        let auth_watch = AuthWatch::start(config.codex_home.as_path(), app_event_tx.clone())
+            .map(Some)
+            .unwrap_or_else(|err| {
+                tracing::warn!(%err, "failed to watch auth.json for changes");
+                None
+            });
         emit_project_config_warnings(&app_event_tx, &config);
         emit_system_bwrap_warning(&app_event_tx, &config);
         tui.set_notification_settings(
@@ -867,6 +996,7 @@ See the Codex keymap documentation for supported actions and examples."
             app_event_tx,
             chat_widget,
             workspace_command_runner: Some(workspace_command_runner),
+            _auth_watch: auth_watch,
             config,
             state_db,
             active_profile,

@@ -185,6 +185,7 @@ use ratatui::text::Line;
 use ratatui::widgets::Paragraph;
 use ratatui::widgets::Wrap;
 use tokio::sync::mpsc::UnboundedSender;
+use tokio::task::JoinHandle;
 use tracing::debug;
 use tracing::warn;
 
@@ -299,6 +300,8 @@ use crate::history_cell::McpInvocation;
 use crate::history_cell::McpToolCallCell;
 use crate::history_cell::PlainHistoryCell;
 use crate::history_cell::WebSearchCell;
+use crate::git_status::GitStatusSummary;
+use crate::git_status::collect_git_status_summary;
 use crate::key_hint;
 use crate::key_hint::KeyBinding;
 use crate::key_hint::KeyBindingListExt;
@@ -306,7 +309,6 @@ use crate::keymap::ChatKeymap;
 use crate::keymap::RuntimeKeymap;
 use crate::render::Insets;
 use crate::render::renderable::ColumnRenderable;
-use crate::render::renderable::FlexRenderable;
 use crate::render::renderable::Renderable;
 use crate::render::renderable::RenderableExt;
 use crate::render::renderable::RenderableItem;
@@ -345,6 +347,7 @@ mod realtime;
 use self::realtime::RealtimeConversationUiState;
 mod reasoning_shortcuts;
 mod side;
+mod status_header;
 mod status_surfaces;
 use self::status_surfaces::CachedProjectRootName;
 use self::status_surfaces::TerminalTitleStatusKind;
@@ -461,6 +464,10 @@ const RATE_LIMIT_WARNING_THRESHOLDS: [f64; 3] = [75.0, 90.0, 95.0];
 const NUDGE_MODEL_SLUG: &str = "gpt-5.4-mini";
 const RATE_LIMIT_SWITCH_PROMPT_THRESHOLD: f64 = 90.0;
 const MAX_AGENT_COPY_HISTORY: usize = 32;
+const RATE_LIMIT_REFRESH_INTERVAL_SECS: u64 = 15;
+const GIT_STATUS_POLL_INTERVAL_SECS: u64 = 15;
+const DEFAULT_USAGE_LIMIT_RESUME_PROMPT: &str =
+    "Please continue from where the conversation left off after the usage limit reset or account switch.";
 
 #[derive(Debug)]
 struct AgentTurnMarkdown {
@@ -777,6 +784,9 @@ pub(crate) struct ChatWidget {
     runtime_model_provider_base_url: Option<String>,
     token_info: Option<TokenUsageInfo>,
     rate_limit_snapshots_by_limit_id: BTreeMap<String, RateLimitSnapshotDisplay>,
+    rate_limit_poller: Option<JoinHandle<()>>,
+    git_status: Option<GitStatusSummary>,
+    git_status_poller: Option<JoinHandle<()>>,
     refreshing_status_outputs: Vec<(u64, StatusHistoryHandle)>,
     next_status_refresh_request_id: u64,
     plan_type: Option<PlanType>,
@@ -883,6 +893,9 @@ pub(crate) struct ChatWidget {
     // Set when commentary output completes; once stream queues go idle we restore the status row.
     pending_status_indicator_restore: bool,
     suppress_queue_autosend: bool,
+    pending_auth_reload_attempt: Option<u8>,
+    pending_usage_limit_resume_turn: Option<UserMessage>,
+    usage_limit_resume_waiting_for_auth_reload: bool,
     thread_id: Option<ThreadId>,
     /// Nudge dismissals that should survive draft edits within the current thread scope.
     ///
@@ -1712,6 +1725,22 @@ impl ChatWidget {
             .set_task_running(self.agent_turn_running || self.mcp_startup_status.is_some());
         self.refresh_plan_mode_nudge();
         self.refresh_status_surfaces();
+        self.maybe_dispatch_deferred_auth_reload();
+    }
+
+    fn maybe_dispatch_deferred_auth_reload(&mut self) {
+        if self.bottom_pane.is_task_running() {
+            return;
+        }
+        let Some(attempt) = self.pending_auth_reload_attempt.take() else {
+            return;
+        };
+        if attempt <= 1 {
+            self.app_event_tx.send(AppEvent::AuthFileChanged);
+        } else {
+            self.app_event_tx
+                .send(AppEvent::AuthFileChangedRetry { attempt });
+        }
     }
 
     fn restore_reasoning_status_header(&mut self) {
@@ -2072,6 +2101,8 @@ impl ChatWidget {
         self.current_rollout_path = session.rollout_path.clone();
         self.current_cwd = Some(session.cwd.to_path_buf());
         self.config.cwd = session.cwd.clone();
+        self.git_status = None;
+        self.start_git_status_poller();
         self.effective_service_tier = session
             .service_tier
             .as_deref()
@@ -2983,6 +3014,68 @@ impl ChatWidget {
         }
         self.refresh_status_line();
     }
+
+    pub(crate) fn handle_auth_identity_changed(&mut self) {
+        self.rate_limit_snapshots_by_limit_id.clear();
+        self.codex_rate_limit_reached_type = None;
+        self.rate_limit_warnings = RateLimitWarningState::default();
+        self.rate_limit_switch_prompt = RateLimitSwitchPromptState::default();
+        self.add_credits_nudge_email_in_flight = None;
+        self.git_status = None;
+        self.refresh_status_line();
+        self.request_redraw();
+    }
+
+    pub(crate) fn defer_auth_reload_until_idle(&mut self, attempt: u8) {
+        self.pending_auth_reload_attempt = Some(
+            self.pending_auth_reload_attempt
+                .map(|existing| existing.min(attempt))
+                .unwrap_or(attempt),
+        );
+    }
+
+    pub(crate) fn on_auth_reload_completed(&mut self, identity_changed: bool) {
+        self.pending_auth_reload_attempt = None;
+        if identity_changed && self.pending_usage_limit_resume_turn.is_some() {
+            self.usage_limit_resume_waiting_for_auth_reload = false;
+        }
+        self.maybe_send_next_queued_input();
+    }
+
+    fn usage_limit_resume_prompt(&self) -> Option<String> {
+        match self.config.tui_usage_limit_resume_prompt.as_deref() {
+            Some("") => None,
+            Some(prompt) => Some(prompt.to_string()),
+            None => Some(DEFAULT_USAGE_LIMIT_RESUME_PROMPT.to_string()),
+        }
+    }
+
+    fn on_usage_limit_error(&mut self, message: String) {
+        if self.pending_usage_limit_resume_turn.is_none()
+            && let Some(prompt) = self.usage_limit_resume_prompt()
+        {
+            self.pending_usage_limit_resume_turn = Some(UserMessage::from(prompt));
+            self.usage_limit_resume_waiting_for_auth_reload = true;
+        }
+        self.on_error(message);
+    }
+
+    pub(crate) fn on_git_status_update(
+        &mut self,
+        cwd: AbsolutePathBuf,
+        summary: Option<GitStatusSummary>,
+    ) {
+        if cwd.as_path() != self.status_line_cwd() {
+            return;
+        }
+        if self.git_status == summary {
+            return;
+        }
+        self.git_status = summary;
+        self.refresh_status_line();
+        self.request_redraw();
+    }
+
     /// Finalize any active exec as failed and stop/clear agent-turn UI state.
     ///
     /// This does not clear MCP startup tracking, because MCP startup can overlap with turn cleanup
@@ -3059,7 +3152,11 @@ impl ChatWidget {
 
     fn on_rate_limit_error(&mut self, error_kind: RateLimitErrorKind, message: String) {
         if !self.workspace_owner_usage_nudge_enabled() {
-            self.on_error(message);
+            if matches!(error_kind, RateLimitErrorKind::UsageLimit) {
+                self.on_usage_limit_error(message);
+            } else {
+                self.on_error(message);
+            }
             return;
         }
 
@@ -3102,7 +3199,11 @@ impl ChatWidget {
                 self.open_workspace_owner_nudge_prompt(AddCreditsNudgeCreditType::UsageLimit);
             }
             Some(RateLimitReachedType::RateLimitReached) | None => {
-                self.on_error(message);
+                if matches!(error_kind, RateLimitErrorKind::UsageLimit) {
+                    self.on_usage_limit_error(message);
+                } else {
+                    self.on_error(message);
+                }
             }
         }
     }
@@ -4944,6 +5045,9 @@ impl ChatWidget {
             runtime_model_provider_base_url,
             token_info: None,
             rate_limit_snapshots_by_limit_id: BTreeMap::new(),
+            rate_limit_poller: None,
+            git_status: None,
+            git_status_poller: None,
             refreshing_status_outputs: Vec::new(),
             next_status_refresh_request_id: 0,
             plan_type: initial_plan_type,
@@ -5001,6 +5105,9 @@ impl ChatWidget {
             retry_status_header: None,
             pending_status_indicator_restore: false,
             suppress_queue_autosend: false,
+            pending_auth_reload_attempt: None,
+            pending_usage_limit_resume_turn: None,
+            usage_limit_resume_waiting_for_auth_reload: false,
             thread_id: None,
             dismissed_plan_mode_nudge_scopes: HashSet::new(),
             last_turn_id: None,
@@ -5070,6 +5177,7 @@ impl ChatWidget {
         };
 
         widget.prefetch_rate_limits();
+        widget.start_git_status_poller();
         if let Some(keymap) = runtime_keymap {
             widget.bottom_pane.set_keymap_bindings(&keymap);
         }
@@ -5152,6 +5260,20 @@ impl ChatWidget {
         }
 
         match key_event {
+            KeyEvent {
+                code: KeyCode::Char(c),
+                modifiers,
+                kind: KeyEventKind::Press,
+                ..
+            } if modifiers == KeyModifiers::CONTROL.union(KeyModifiers::SHIFT)
+                && c.eq_ignore_ascii_case(&'c') =>
+            {
+                if self.on_ctrl_shift_c() {
+                    return;
+                }
+                self.on_ctrl_c();
+                return;
+            }
             KeyEvent {
                 code: KeyCode::Char(c),
                 modifiers,
@@ -5286,6 +5408,7 @@ impl ChatWidget {
                         {
                             return;
                         }
+                        self.clear_pending_usage_limit_resume_turn();
                         let should_submit_now =
                             self.is_session_configured() && !self.is_plan_streaming_in_tui();
                         if should_submit_now {
@@ -5323,6 +5446,7 @@ impl ChatWidget {
                                 .bottom_pane
                                 .take_recent_submission_mention_bindings(),
                         };
+                        self.clear_pending_usage_limit_resume_turn();
                         self.queue_user_message_with_options(user_message, action);
                     }
                     InputResult::Command(cmd) => {
@@ -6787,10 +6911,27 @@ impl ChatWidget {
         if self.suppress_queue_autosend {
             return false;
         }
+        if self.pending_auth_reload_attempt.is_some() {
+            return false;
+        }
+        if self.usage_limit_resume_waiting_for_auth_reload
+            && self.pending_usage_limit_resume_turn.is_some()
+        {
+            return false;
+        }
         if self.is_user_turn_pending_or_running() {
             return false;
         }
         let mut submitted_follow_up = false;
+        if let Some(user_message) = self.pending_usage_limit_resume_turn.take() {
+            self.usage_limit_resume_waiting_for_auth_reload = false;
+            self.reasoning_buffer.clear();
+            self.full_reasoning_buffer.clear();
+            self.set_status_header(String::from("Working"));
+            self.submit_user_message(user_message);
+            self.refresh_pending_input_preview();
+            return true;
+        }
         while !self.is_user_turn_pending_or_running() {
             let Some((queued_message, history_record)) = self.pop_next_queued_user_message() else {
                 break;
@@ -6824,6 +6965,17 @@ impl ChatWidget {
         submitted_follow_up
     }
 
+    fn clear_pending_usage_limit_resume_turn(&mut self) {
+        if self.pending_usage_limit_resume_turn.is_none()
+            && !self.usage_limit_resume_waiting_for_auth_reload
+        {
+            return;
+        }
+        self.pending_usage_limit_resume_turn = None;
+        self.usage_limit_resume_waiting_for_auth_reload = false;
+        self.refresh_pending_input_preview();
+    }
+
     pub(super) fn is_user_turn_pending_or_running(&self) -> bool {
         self.user_turn_pending_start || self.bottom_pane.is_task_running()
     }
@@ -6839,17 +6991,20 @@ impl ChatWidget {
 
     /// Rebuild and update the bottom-pane pending-input preview.
     fn refresh_pending_input_preview(&mut self) {
-        let queued_messages: Vec<String> = self
-            .queued_user_messages
-            .iter()
-            .enumerate()
-            .map(|(idx, message)| {
+        let mut queued_messages: Vec<String> = self
+            .pending_usage_limit_resume_turn
+            .as_ref()
+            .map(|message| message.text.clone())
+            .into_iter()
+            .collect();
+        queued_messages.extend(self.queued_user_messages.iter().enumerate().map(
+            |(idx, message)| {
                 user_message_preview_text(
                     message,
                     self.queued_user_message_history_records.get(idx),
                 )
-            })
-            .collect();
+            },
+        ));
         let pending_steers: Vec<String> = self
             .pending_steers
             .iter()
@@ -7124,7 +7279,17 @@ impl ChatWidget {
         );
     }
 
-    fn stop_rate_limit_poller(&mut self) {}
+    fn stop_rate_limit_poller(&mut self) {
+        if let Some(handle) = self.rate_limit_poller.take() {
+            handle.abort();
+        }
+    }
+
+    fn stop_git_status_poller(&mut self) {
+        if let Some(handle) = self.git_status_poller.take() {
+            handle.abort();
+        }
+    }
 
     pub(crate) fn refresh_connectors(&mut self, force_refetch: bool) {
         self.prefetch_connectors_with_options(force_refetch);
@@ -7209,11 +7374,57 @@ impl ChatWidget {
     #[cfg_attr(not(test), allow(dead_code))]
     fn prefetch_rate_limits(&mut self) {
         self.stop_rate_limit_poller();
+        if !self.should_prefetch_rate_limits() {
+            self.on_rate_limit_snapshot(None);
+            return;
+        }
+        self.app_event_tx.send(AppEvent::RefreshRateLimits {
+            origin: RateLimitRefreshOrigin::StartupPrefetch,
+        });
+        self.start_rate_limit_poller();
     }
 
     #[cfg_attr(not(test), allow(dead_code))]
     fn should_prefetch_rate_limits(&self) -> bool {
         self.config.model_provider.requires_openai_auth && self.has_chatgpt_account
+    }
+
+    fn start_rate_limit_poller(&mut self) {
+        self.stop_rate_limit_poller();
+        let app_event_tx = self.app_event_tx.clone();
+        self.rate_limit_poller = Some(tokio::spawn(async move {
+            let mut interval =
+                tokio::time::interval(Duration::from_secs(RATE_LIMIT_REFRESH_INTERVAL_SECS));
+            loop {
+                interval.tick().await;
+                app_event_tx.send(AppEvent::RefreshRateLimits {
+                    origin: RateLimitRefreshOrigin::BackgroundPoll,
+                });
+            }
+        }));
+    }
+
+    fn start_git_status_poller(&mut self) {
+        self.stop_git_status_poller();
+        let cwd = self.config.cwd.clone();
+        let app_event_tx = self.app_event_tx.clone();
+        self.git_status_poller = Some(tokio::spawn(async move {
+            let poll = || {
+                let cwd = cwd.clone();
+                let app_event_tx = app_event_tx.clone();
+                async move {
+                    let summary = collect_git_status_summary(cwd.as_path()).await;
+                    app_event_tx.send(AppEvent::GitStatusFetched { cwd, summary });
+                }
+            };
+            poll().await;
+            let mut interval =
+                tokio::time::interval(Duration::from_secs(GIT_STATUS_POLL_INTERVAL_SECS));
+            loop {
+                interval.tick().await;
+                poll().await;
+            }
+        }));
     }
 
     fn lower_cost_preset(&self) -> Option<ModelPreset> {
@@ -9935,7 +10146,7 @@ impl ChatWidget {
 
     fn rename_confirmation_cell(name: &str, thread_id: Option<ThreadId>) -> PlainHistoryCell {
         let resume_cmd = crate::legacy_core::util::resume_command(Some(name), thread_id)
-            .unwrap_or_else(|| format!("codex resume {name}"));
+            .unwrap_or_else(|| format!("codext resume {name}"));
         let name = name.to_string();
         let line = vec![
             "• ".into(),
@@ -10262,6 +10473,32 @@ impl ChatWidget {
         }
     }
 
+    fn on_ctrl_shift_c(&mut self) -> bool {
+        if self.realtime_conversation.is_live() || !self.bottom_pane.no_modal_or_popup_active() {
+            return false;
+        }
+
+        let draft = self.bottom_pane.composer_text_with_pending();
+        if draft.trim().is_empty() {
+            return false;
+        }
+
+        match crate::clipboard_copy::copy_to_clipboard(&draft) {
+            Ok(lease) => {
+                self.clipboard_lease = lease;
+                self.add_to_history(history_cell::new_info_event(
+                    "Copied draft to clipboard".into(),
+                    /*hint*/ None,
+                ));
+            }
+            Err(error) => self.add_to_history(history_cell::new_error_event(format!(
+                "Copy failed: {error}"
+            ))),
+        }
+        self.request_redraw();
+        true
+    }
+
     /// Handles a Ctrl+D press at the chat-widget layer.
     ///
     /// Ctrl-D only participates in quit when the composer is empty and no modal/popup is active.
@@ -10418,6 +10655,10 @@ impl ChatWidget {
 
     pub(crate) fn composer_is_empty(&self) -> bool {
         self.bottom_pane.composer_is_empty()
+    }
+
+    pub(crate) fn is_task_running(&self) -> bool {
+        self.bottom_pane.is_task_running()
     }
 
     #[cfg(test)]
@@ -10954,30 +11195,7 @@ impl ChatWidget {
     }
 
     fn as_renderable(&self) -> RenderableItem<'_> {
-        let active_cell_renderable = match &self.active_cell {
-            Some(cell) => RenderableItem::Borrowed(cell).inset(Insets::tlbr(
-                /*top*/ 1, /*left*/ 0, /*bottom*/ 0, /*right*/ 0,
-            )),
-            None => RenderableItem::Owned(Box::new(())),
-        };
-        let active_hook_cell_renderable = match &self.active_hook_cell {
-            Some(cell) if cell.should_render() => {
-                RenderableItem::Borrowed(cell).inset(Insets::tlbr(
-                    /*top*/ 1, /*left*/ 0, /*bottom*/ 0, /*right*/ 0,
-                ))
-            }
-            _ => RenderableItem::Owned(Box::new(())),
-        };
-        let mut flex = FlexRenderable::new();
-        flex.push(/*flex*/ 1, active_cell_renderable);
-        flex.push(/*flex*/ 0, active_hook_cell_renderable);
-        flex.push(
-            /*flex*/ 0,
-            RenderableItem::Borrowed(&self.bottom_pane).inset(Insets::tlbr(
-                /*top*/ 1, /*left*/ 0, /*bottom*/ 0, /*right*/ 0,
-            )),
-        );
-        RenderableItem::Owned(Box::new(flex))
+        status_header::as_renderable(self)
     }
 }
 
@@ -11011,6 +11229,7 @@ impl Drop for ChatWidget {
     fn drop(&mut self) {
         self.reset_realtime_conversation_state();
         self.stop_rate_limit_poller();
+        self.stop_git_status_poller();
     }
 }
 
