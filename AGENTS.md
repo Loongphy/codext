@@ -1,5 +1,15 @@
 # Rust/codex-rs
 
+<!-- codex-upstream-reapply:start -->
+## Temporary Reapply Guardrails (`rust-v0.130.0`)
+
+- Current work on this branch is an upstream reapply / re-implementation for `rust-v0.130.0`.
+- Only implementation code and necessary docs may change for this task. Do not add or modify tests or snapshot files.
+- Do not run lint / format / auto-fix commands for this reapply, including `cargo fmt`, `just fmt`, `cargo clippy`, `cargo clippy --fix`, and `just fix`.
+- Acceptance for this reapply is limited to the `codex-upstream-reapply` skill criteria, including `cd codex-rs && cargo build -p codex-cli` and `cd codex-rs && cargo build -p codex-cli --release`.
+<!-- codex-upstream-reapply:end -->
+
+
 In the codex-rs folder where the rust code lives:
 
 - Crate names are prefixed with `codex-`. For example, the `core` folder's crate is named `codex-core`
@@ -130,7 +140,7 @@ When UI or text output changes intentionally, update the snapshots as follows:
 
 If you don’t have the tool:
 
-- `cargo install --locked cargo-insta`
+- `cargo install cargo-insta`
 
 ### Test assertions
 
