@@ -26,24 +26,50 @@ cargo run --bin codex
 
 ## Features
 
+
 > Full change log: see [CHANGED.md](./CHANGED.md).
 
-* `Ctrl+Shift+C` in the TUI composer copies the current draft to the system clipboard; `Ctrl+C` keeps its existing behavior, and empty drafts still fall back to the old `Ctrl+C` path.
-* TUI status header with model/effort, cwd, git summary, and rate-limit status.
-* TUI watches `auth.json` for external login changes and reloads auth automatically after writes settle. If a task is still running, the reload waits until the turn is idle, then refreshes rate limits and warns on account switch. When a turn stops on a usage limit, Codext queues a synthetic user turn ahead of other queued follow-ups and auto-dispatches it after the next auth reload that changes account identity; if a reload is already pending, that reload is applied first. This works well with [codex-auth](https://github.com/Loongphy/codex-auth) when you refresh or switch login state outside the TUI.
-* The synthetic recovery turn text is configurable with `[tui].usage_limit_resume_prompt`. Leave it unset to use the built-in default, or set it to `""` to disable the automatic recovery turn entirely. The built-in default is:
+Here is the optimized version in English, structured for better readability and professional presentation:
 
+---
+
+### TUI: Status Header
+The TUI header now provides a comprehensive overview of your current workspace:
+* **Context**: Displays the active model, effort level, and current working directory (`cwd`).
+* **Git Status**: Real-time summary of your repository state.
+* **Rate Limits**: Instant visibility into your API rate-limit status.
+> ![Status Header Preview](https://github.com/user-attachments/assets/23350e86-2597-48ea-82a6-378f8f01ac74)
+
+### Copy to Clipboard
+
+* **`Ctrl+Shift+C`**: Copies the current draft to the system clipboard.
+* **`Ctrl+C`**: Retains existing behavior; remains backward-compatible with legacy logic when the draft is empty.
+
+### Automatic Account switch
+TUI now monitors `auth.json` for external changes, automatically reloads authentication after external writes settle.
+
+Fully compatible with [codex-auth](https://github.com/Loongphy/codex-auth) for seamless external login management.
+
+### Automatic Resumption
+When the TUI detects an account switch after hitting a usage limit, it automatically dispatches a recovery prompt to resume the interrupted task.
+
+You can configure this behavior using `[tui].usage_limit_resume_prompt`:
+* **Custom Prompt**: Define a specific string to be sent as the "resumption turn." This prompt will be used to signal the model to continue where it left off.
+* **Disable**: Set to `""` (empty string) to disable this automatic recovery behavior entirely.
+* **Default**: If left unset, the system uses the following built-in prompt:
   ```text
   The previous turn stopped because the active account hit a usage limit. Any pending auth reload has already been applied. Please continue the previous coding task from where it stopped, and use apply_patch for any required file edits.
   ```
-
   Example:
 
   ```toml
   [tui]
   usage_limit_resume_prompt = ""
   ```
-* AGENTS.md and project-doc instructions are refreshed on each new user turn, and Codex shows an explicit warning when a refresh is applied.
+
+### AGENTS.md auto reload
+
+AGENTS.md and project-doc instructions are refreshed on each new user turn, and Codex shows an explicit warning when a refresh is applied.
 
 ## Project Goals
 
