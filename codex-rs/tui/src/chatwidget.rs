@@ -469,6 +469,27 @@ const GIT_STATUS_POLL_INTERVAL_SECS: u64 = 15;
 const DEFAULT_USAGE_LIMIT_RESUME_PROMPT: &str =
     "Please continue from where the conversation left off after the usage limit reset or account switch.";
 
+fn rate_limit_snapshot_has_available_quota(snapshot: &RateLimitSnapshot) -> bool {
+    if snapshot.rate_limit_reached_type.is_some() {
+        return false;
+    }
+
+    let primary_available = snapshot
+        .primary
+        .as_ref()
+        .is_none_or(|window| window.used_percent < 100);
+    let secondary_available = snapshot
+        .secondary
+        .as_ref()
+        .is_none_or(|window| window.used_percent < 100);
+    let credits_available = snapshot
+        .credits
+        .as_ref()
+        .is_none_or(|credits| credits.has_credits || credits.unlimited);
+
+    primary_available && secondary_available && credits_available
+}
+
 #[derive(Debug)]
 struct AgentTurnMarkdown {
     user_turn_count: usize,
@@ -893,6 +914,7 @@ pub(crate) struct ChatWidget {
     // Set when commentary output completes; once stream queues go idle we restore the status row.
     pending_status_indicator_restore: bool,
     suppress_queue_autosend: bool,
+    queue_autosend_blocked_by_rate_limit: bool,
     pending_auth_reload_attempt: Option<u8>,
     pending_usage_limit_resume_turn: Option<UserMessage>,
     usage_limit_resume_waiting_for_auth_reload: bool,
@@ -2944,6 +2966,8 @@ impl ChatWidget {
             {
                 self.codex_rate_limit_reached_type = Some(rate_limit_reached_type);
             }
+            let quota_available =
+                is_codex_limit && rate_limit_snapshot_has_available_quota(&snapshot);
             let warnings = if is_codex_limit {
                 self.rate_limit_warnings.take_warnings(
                     snapshot
@@ -3002,6 +3026,14 @@ impl ChatWidget {
             self.rate_limit_snapshots_by_limit_id
                 .insert(limit_id, display);
 
+            if quota_available && self.queue_autosend_blocked_by_rate_limit {
+                self.queue_autosend_blocked_by_rate_limit = false;
+                if self.has_queued_follow_up_messages() {
+                    self.clear_pending_usage_limit_resume_turn();
+                }
+                self.maybe_send_next_queued_input();
+            }
+
             if !warnings.is_empty() {
                 for warning in warnings {
                     self.add_to_history(history_cell::new_warning_event(warning));
@@ -3018,6 +3050,7 @@ impl ChatWidget {
     pub(crate) fn handle_auth_identity_changed(&mut self) {
         self.rate_limit_snapshots_by_limit_id.clear();
         self.codex_rate_limit_reached_type = None;
+        self.queue_autosend_blocked_by_rate_limit = false;
         self.rate_limit_warnings = RateLimitWarningState::default();
         self.rate_limit_switch_prompt = RateLimitSwitchPromptState::default();
         self.add_credits_nudge_email_in_flight = None;
@@ -3151,6 +3184,7 @@ impl ChatWidget {
     }
 
     fn on_rate_limit_error(&mut self, error_kind: RateLimitErrorKind, message: String) {
+        self.queue_autosend_blocked_by_rate_limit = true;
         if !self.workspace_owner_usage_nudge_enabled() {
             if matches!(error_kind, RateLimitErrorKind::UsageLimit) {
                 self.on_usage_limit_error(message);
@@ -5105,6 +5139,7 @@ impl ChatWidget {
             retry_status_header: None,
             pending_status_indicator_restore: false,
             suppress_queue_autosend: false,
+            queue_autosend_blocked_by_rate_limit: false,
             pending_auth_reload_attempt: None,
             pending_usage_limit_resume_turn: None,
             usage_limit_resume_waiting_for_auth_reload: false,
@@ -5689,7 +5724,10 @@ impl ChatWidget {
         user_message: UserMessage,
         action: QueuedInputAction,
     ) {
-        if !self.is_session_configured() || self.is_user_turn_pending_or_running() {
+        if !self.is_session_configured()
+            || self.is_user_turn_pending_or_running()
+            || self.queue_autosend_blocked_by_rate_limit
+        {
             self.queued_user_messages
                 .push_back(QueuedUserMessage::new(user_message, action));
             self.queued_user_message_history_records
@@ -6909,6 +6947,9 @@ impl ChatWidget {
     // If idle and there are queued inputs, submit exactly one to start the next turn.
     pub(crate) fn maybe_send_next_queued_input(&mut self) -> bool {
         if self.suppress_queue_autosend {
+            return false;
+        }
+        if self.queue_autosend_blocked_by_rate_limit {
             return false;
         }
         if self.pending_auth_reload_attempt.is_some() {

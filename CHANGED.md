@@ -1,6 +1,6 @@
 # Changes in This Fork
 
-This file captures the full set of changes currently in the working tree.
+This file captures the fork-specific behavior reapplied on top of the current upstream tag.
 
 ## TUI composer draft clipboard shortcut
 
@@ -37,6 +37,13 @@ This file captures the full set of changes currently in the working tree.
 - After a turn stops on `UsageLimitExceeded`, Codext now keeps that synthetic recovery turn parked until the next `auth.json` reload that actually changes account identity, so switching accounts can continue the interrupted task without a manual resend.
 - If the user manually submits a new message before that auth reload arrives, Codext clears the parked usage-limit recovery turn instead of replaying the stale synthetic prompt later.
 
+## TUI queued messages after usage-limit exhaustion
+
+- When a turn ends because quota/rate limit is exhausted, Codext pauses queued-message autosend instead of draining already queued Tab follow-ups into more failed turns.
+- While autosend is paused, pressing Tab still queues new messages even when no turn is currently running.
+- When a later Codex rate-limit snapshot shows quota available again, Codext resumes autosend and submits exactly the first queued user message; any additional queued messages remain queued for normal FIFO draining after that turn completes.
+- If both a parked usage-limit recovery prompt and user-queued follow-ups exist when quota recovers, the user-queued follow-up wins and the stale synthetic recovery prompt is cleared.
+
 ## Approval fallback when auto-review is unavailable
 
 - When automatic approval review times out or fails internally (for example, the reviewer hits a usage limit), sandbox approval requests now fall back to an explicit user approval prompt instead of stopping at a hard auto-review denial.
@@ -53,9 +60,3 @@ This file captures the full set of changes currently in the working tree.
 
 - Added a fork requirement that user-facing resume hints use `codext resume <session>` / `codext resume <thread-name>` instead of `codex resume ...`.
 - This includes the final resume hint shown after exiting the TUI and other resume guidance surfaced inside the TUI.
-
-## WSL bubblewrap `.codex` artifact
-
-- Fixed the Linux bubblewrap sandbox path that protected a missing top-level `.codex` by bind-mounting `/dev/null` onto the first missing component.
-- Missing project-local `.codex` read-only carveouts now use a sandbox-local read-only blocker and the Linux sandbox helper removes any empty host-side blocker file after bubblewrap exits.
-- Existing project-local `.codex` paths remain protected by the normal read-only remount path.

@@ -28,8 +28,6 @@ cargo run --bin codex
 
 > Full change log: see [CHANGED.md](./CHANGED.md).
 
-Here is the optimized version in English, structured for better readability and professional presentation:
-
 ---
 
 ### TUI: Status Header
@@ -57,7 +55,7 @@ You can configure this behavior using `[tui].usage_limit_resume_prompt`:
 * **Disable**: Set to `""` (empty string) to disable this automatic recovery behavior entirely.
 * **Default**: If left unset, the system uses the following built-in prompt:
   ```text
-  The previous turn stopped because the active account hit a usage limit. Any pending auth reload has already been applied. Please continue the previous coding task from where it stopped, and use apply_patch for any required file edits.
+  Please continue from where the conversation left off after the usage limit reset or account switch.
   ```
   Example:
 
@@ -65,6 +63,10 @@ You can configure this behavior using `[tui].usage_limit_resume_prompt`:
   [tui]
   usage_limit_resume_prompt = ""
   ```
+
+### Queued Messages After Usage Limits
+
+Tab-queued follow-up messages are preserved when quota is exhausted. Codext pauses queued-message autosend while rate-limited, still lets Tab add new queued messages, and when a later rate-limit snapshot shows quota available again it submits only the first queued user message; the rest stay queued for normal FIFO draining.
 
 ### AGENTS.md auto reload
 
