@@ -63,7 +63,7 @@ jobs:
 
       - name: Cache Cargo home and target dir
         if: ${{ contains(matrix.target, 'unknown-linux-musl') }}
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: |
             ${{ github.workspace }}/.cargo-home/registry
@@ -75,7 +75,7 @@ jobs:
 
       - name: Cache Cargo home and target dir
         if: ${{ !contains(matrix.target, 'unknown-linux-musl') }}
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: |
             ~/.cargo/registry
@@ -200,7 +200,7 @@ jobs:
           targets: ${{ matrix.target }}
 
       - name: Cache Cargo home and target dir
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: |
             ~/.cargo/registry
