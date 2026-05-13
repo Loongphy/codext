@@ -42,6 +42,16 @@ The TUI header now provides a comprehensive overview of your current workspace:
 * **`Ctrl+Shift+C`**: Copies the current draft to the system clipboard.
 * **`Ctrl+C`**: Retains existing behavior; remains backward-compatible with legacy logic when the draft is empty.
 
+### Prompt Queueing on usage limit
+
+<img width="2920" height="943" alt="PixPin_2026-05-13_21-37-32" src="https://github.com/user-attachments/assets/534e927d-a306-4fef-b97c-629542bf8906" />
+
+Tab-queued follow-up messages are kept when usage limits are reached.
+
+Codex pauses queued-message autosend while rate-limited, still allows Tab to add more queued messages, and automatically sends only the first queued user message once a later rate-limit snapshot shows quota is available again.
+
+Remaining messages stay queued for normal FIFO draining.
+
 ### Automatic Account switch
 TUI now monitors `auth.json` for external changes, automatically reloads authentication after external writes settle.
 
@@ -63,10 +73,6 @@ You can configure this behavior using `[tui].usage_limit_resume_prompt`:
   [tui]
   usage_limit_resume_prompt = ""
   ```
-
-### Queued Messages After Usage Limits
-
-Tab-queued follow-up messages are preserved when quota is exhausted. Codext pauses queued-message autosend while rate-limited, still lets Tab add new queued messages, and when a later rate-limit snapshot shows quota available again it submits only the first queued user message; the rest stay queued for normal FIFO draining.
 
 ### AGENTS.md auto reload
 
