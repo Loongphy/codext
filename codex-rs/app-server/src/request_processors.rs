@@ -320,6 +320,7 @@ use codex_feedback::FeedbackUploadOptions;
 use codex_git_utils::git_diff_to_remote;
 use codex_git_utils::resolve_root_git_project_for_trust;
 use codex_login::AuthManager;
+use codex_login::AuthReloadStatus;
 use codex_login::CLIENT_ID;
 use codex_login::CodexAuth;
 use codex_login::ServerOptions as LoginServerOptions;
@@ -428,6 +429,52 @@ use uuid::Uuid;
 
 #[cfg(test)]
 use codex_app_server_protocol::ServerRequest;
+
+async fn reload_auth_from_storage_if_idle(
+    auth_manager: &Arc<AuthManager>,
+    thread_manager: &Arc<ThreadManager>,
+    config_manager: &ConfigManager,
+    outgoing: &OutgoingMessageSender,
+    thread_watch_manager: &ThreadWatchManager,
+    chatgpt_base_url: &str,
+    reason: &str,
+) {
+    if *thread_watch_manager.subscribe_running_turn_count().borrow() != 0 {
+        return;
+    }
+
+    match auth_manager.reload_with_status().await {
+        AuthReloadStatus::Reloaded { changed } => {
+            if !changed {
+                return;
+            }
+
+            let invalidated_thread_count = thread_manager.invalidate_model_transport_caches().await;
+            info!(
+                "auth reloaded from storage before {reason}; invalidated model transport caches for {invalidated_thread_count} tracked thread(s)"
+            );
+            config_manager.replace_cloud_requirements_loader(
+                Arc::clone(auth_manager),
+                chatgpt_base_url.to_string(),
+            );
+            config_manager
+                .sync_default_client_residency_requirement()
+                .await;
+            let auth = auth_manager.auth_cached();
+            outgoing
+                .send_server_notification(ServerNotification::AccountUpdated(
+                    AccountUpdatedNotification {
+                        auth_mode: auth.as_ref().map(CodexAuth::api_auth_mode),
+                        plan_type: auth.as_ref().and_then(CodexAuth::account_plan_type),
+                    },
+                ))
+                .await;
+        }
+        AuthReloadStatus::Failed => {
+            warn!("failed to reload auth from storage before {reason}");
+        }
+    }
+}
 
 mod account_processor;
 mod apps_processor;

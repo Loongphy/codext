@@ -322,6 +322,65 @@ async fn unauthorized_recovery_reports_mode_and_step_names() {
 
 #[tokio::test]
 #[serial(codex_auth_env)]
+async fn reload_detects_chatgpt_workspace_switch() {
+    let codex_home = tempdir().unwrap();
+    let _access_token_guard = remove_access_token_env_var();
+    write_auth_file(
+        AuthFileParams {
+            openai_api_key: None,
+            chatgpt_plan_type: Some("pro".to_string()),
+            chatgpt_account_id: Some("org_before".to_string()),
+        },
+        codex_home.path(),
+    )
+    .expect("failed to write initial auth file");
+
+    let initial_auth = super::load_auth(
+        codex_home.path(),
+        /*enable_codex_api_key_env*/ false,
+        AuthCredentialsStoreMode::File,
+        /*chatgpt_base_url*/ None,
+    )
+    .await
+    .expect("initial auth should load")
+    .expect("initial auth should exist");
+    let manager = AuthManager::from_auth_for_testing_with_home(
+        initial_auth,
+        codex_home.path().to_path_buf(),
+    );
+    assert_eq!(
+        manager
+            .auth_cached()
+            .and_then(|auth| auth.get_current_auth_json())
+            .and_then(|auth_json| auth_json.tokens)
+            .and_then(|token_data| token_data.id_token.chatgpt_account_id),
+        Some("org_before".to_string())
+    );
+
+    write_auth_file(
+        AuthFileParams {
+            openai_api_key: None,
+            chatgpt_plan_type: Some("pro".to_string()),
+            chatgpt_account_id: Some("org_after".to_string()),
+        },
+        codex_home.path(),
+    )
+    .expect("failed to write updated auth file");
+
+    assert!(manager.reload().await);
+    assert_eq!(
+        manager
+            .auth_cached()
+            .and_then(|auth| auth.get_current_auth_json())
+            .and_then(|auth_json| auth_json.tokens)
+            .and_then(|token_data| token_data.id_token.chatgpt_account_id)
+            .as_deref(),
+        Some("org_after")
+    );
+}
+
+#[tokio::test]
+#[serial(codex_auth_env)]
 async fn refresh_failure_is_scoped_to_the_matching_auth_snapshot() {
     let codex_home = tempdir().unwrap();
     let _access_token_guard = remove_access_token_env_var();

@@ -1513,14 +1513,6 @@ impl AuthManager {
         }
     }
 
-    fn auths_equal(a: Option<&CodexAuth>, b: Option<&CodexAuth>) -> bool {
-        match (a, b) {
-            (None, None) => true,
-            (Some(a), Some(b)) => a == b,
-            _ => false,
-        }
-    }
-
     /// Records a permanent refresh failure only if the failed refresh was
     /// attempted against the auth snapshot that is still cached.
     fn record_permanent_refresh_failure_if_unchanged(
@@ -1553,10 +1545,8 @@ impl AuthManager {
     fn set_cached_auth(&self, new_auth: Option<CodexAuth>) -> bool {
         if let Ok(mut guard) = self.inner.write() {
             let previous = guard.auth.as_ref();
-            let changed = !AuthManager::auths_equal(previous, new_auth.as_ref());
-            let auth_changed_for_refresh =
-                !Self::auths_equal_for_refresh(previous, new_auth.as_ref());
-            if auth_changed_for_refresh {
+            let changed = !Self::auths_equal_for_refresh(previous, new_auth.as_ref());
+            if changed {
                 guard.permanent_refresh_failure = None;
             }
             tracing::info!("Reloaded auth, changed: {changed}");

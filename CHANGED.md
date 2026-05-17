@@ -56,6 +56,16 @@ This file captures the fork-specific behavior reapplied on top of the current up
 - When a reload happens, Codex emits an explicit warning in the transcript:
   `AGENTS.md instructions changed. Reloaded and applied starting this turn.`
 
+## App-server auth.json account switching
+
+- The app-server now reloads auth from storage before `thread/start`, `thread/resume`, and `turn/start` when no turn is running.
+- Auth is still not hot-swapped in the middle of an active turn; reload is skipped while `running_turn_count` is nonzero and the next request boundary gets the new auth.
+- ChatGPT account/workspace switches inside the same auth mode are treated as auth changes by comparing the refresh-relevant auth snapshot, not only the top-level auth mode.
+- When a reload changes auth, loaded threads invalidate their cached model transport state so a reused WebSocket session created under the previous account is not used for the next turn.
+- The app-server also refreshes cloud requirements/default residency state and emits `AccountUpdated` after a changed reload so app UI account state follows the new snapshot.
+- Reapply notes: keep `reload_auth_from_storage_if_idle` wired into all three request entry points, preserve the idle guard, and preserve the invalidation chain `ThreadManager::invalidate_model_transport_caches` -> `CodexThread::invalidate_model_transport_cache` -> `ModelClient::invalidate_cached_transport_state`.
+- Reapply validation: run `cargo test --offline -p codex-login reload_detects_chatgpt_workspace_switch`, `cargo test -p codex-core invalidate_cached_transport_state_clears_cached_websocket_session`, and `cargo check --offline -p codex-app-server --lib` after merging upstream auth/app-server changes.
+
 ## TUI exit resume command
 
 - Added a fork requirement that user-facing resume hints use `codext resume <session>` / `codext resume <thread-name>` instead of `codex resume ...`.

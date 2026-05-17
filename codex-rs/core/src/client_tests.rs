@@ -300,6 +300,27 @@ fn build_ws_client_metadata_includes_window_lineage_and_turn_metadata() {
     );
 }
 
+#[test]
+fn invalidate_cached_transport_state_clears_cached_websocket_session() {
+    let client = test_model_client(SessionSource::Cli);
+
+    {
+        let session = client.new_session();
+        session.websocket_session.set_connection_reused(true);
+        assert!(session.websocket_session.connection_reused());
+    }
+
+    {
+        let session = client.new_session();
+        assert!(session.websocket_session.connection_reused());
+    }
+
+    client.invalidate_cached_transport_state();
+
+    let session = client.new_session();
+    assert!(!session.websocket_session.connection_reused());
+}
+
 #[tokio::test]
 async fn summarize_memories_returns_empty_for_empty_input() {
     let client = test_model_client(SessionSource::Cli);
