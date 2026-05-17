@@ -2,8 +2,6 @@
 
 An opinionated Codex CLI. This is strictly a personal hobby project, forked from openai/codex.
 
-![Codex build](https://img.shields.io/static/v1?label=codex%20build&message=rust-v0.130.0-58573da43a&color=2ea043)
-
 > ![Status Header Preview](https://github.com/user-attachments/assets/23350e86-2597-48ea-82a6-378f8f01ac74)
 
 ## Quick Start

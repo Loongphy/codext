@@ -221,15 +221,12 @@ update_readme_build_badge() {
   local tag_name="$1"
   local readme_path="README.md"
   local tmp_file=""
-  local short_commit=""
-  local badge_value=""
 
   [[ -f "${readme_path}" ]] || return 0
-  short_commit="$(git rev-parse --short "${tag_name}^{commit}")"
-  badge_value="${tag_name}-${short_commit}"
-  tmp_file="$(mktemp)"
 
-  perl -0pe 's|!\[Codex build\]\(https://img\.shields\.io/static/v1\?label=codex%20build&message=[^&)]*&color=2ea043\)|![Codex build](https://img.shields.io/static/v1?label=codex%20build&message='"${badge_value}"'&color=2ea043)|g' \
+  # Remove the Codex build badge line entirely
+  tmp_file="$(mktemp)"
+  perl -0pe 's|!\[Codex build\]\(https://img\.shields\.io/static/v1\?label=codex%20build&message=[^&)]*&color=2ea043\)\n*||g' \
     "${readme_path}" > "${tmp_file}"
 
   if cmp -s "${readme_path}" "${tmp_file}"; then
@@ -239,7 +236,7 @@ update_readme_build_badge() {
 
   mv "${tmp_file}" "${readme_path}"
   git add "${readme_path}"
-  echo "[INFO] Updated README.md build badge to ${badge_value}"
+  echo "[INFO] Removed README.md build badge"
 }
 
 path_exists_in_ref() {
