@@ -1,60 +1,123 @@
-<p align="center"><code>npm i -g @openai/codex</code><br />or <code>brew install --cask codex</code></p>
-<p align="center"><strong>Codex CLI</strong> is a coding agent from OpenAI that runs locally on your computer.
-<p align="center">
-  <img src="https://github.com/openai/codex/blob/main/.github/codex-cli-splash.png" alt="Codex CLI splash" width="80%" />
-</p>
-</br>
-If you want Codex in your code editor (VS Code, Cursor, Windsurf), <a href="https://developers.openai.com/codex/ide">install in your IDE.</a>
-</br>If you want the desktop app experience, run <code>codex app</code> or visit <a href="https://chatgpt.com/codex?app-landing-page=true">the Codex App page</a>.
-</br>If you are looking for the <em>cloud-based agent</em> from OpenAI, <strong>Codex Web</strong>, go to <a href="https://chatgpt.com/codex">chatgpt.com/codex</a>.</p>
+# Codext
+
+An opinionated Codex CLI. This is strictly a personal hobby project, forked from openai/codex.
+
+![Preview](https://github.com/user-attachments/assets/23350e86-2597-48ea-82a6-378f8f01ac74)
+
+## Quick Start
+
+Choose one of these two ways:
+
+* Install from npm:
+
+```shell
+npm i -g @loongphy/codext
+```
+
+* Build from source:
+
+```shell
+cd codex-rs
+cargo run --bin codex
+```
+
+## Features
+
+> Full change log: see [CHANGED.md](./CHANGED.md).
 
 ---
 
-## Quickstart
+### TUI: Status Header
 
-### Installing and running Codex CLI
+The TUI header now provides a comprehensive overview of your current workspace:
 
-Install globally with your preferred package manager:
+* **Context**: Displays the active model, effort level, and current working directory (`cwd`).
+* **Git Status**: Real-time summary of your repository state.
+* **Rate Limits**: Instant visibility into your API rate-limit status.
 
-```shell
-# Install using npm
-npm install -g @openai/codex
+![Status Header Preview](https://github.com/user-attachments/assets/23350e86-2597-48ea-82a6-378f8f01ac74)
+
+### Copy to Clipboard
+
+* **`Ctrl+Shift+C`**: Copies the current draft to the system clipboard.
+* **`Ctrl+C`**: Retains existing behavior; remains backward-compatible with legacy logic when the draft is empty.
+
+### Prompt Queue on usage limit
+
+![Prompt Queue](https://github.com/user-attachments/assets/534e927d-a306-4fef-b97c-629542bf8906)
+
+### Prompt Queue
+
+This feature helps manage your follow-up messages when AI usage limits are reached:
+
+* **Paused and Waiting**: When usage limits are triggered, messages in the queue will wait instead of being sent automatically.
+* **Append While Usage limit**: Even when you are rate-limited, you can still press ` Tab ` to add more messages to the queue.
+* **Auto-Send on Reset**: Once your quota becomes available again, Codex will automatically send the **first** queued message.
+
+### Account Switching
+
+Codex now monitors `auth.json` for external changes and automatically reloads authentication after external writes settle, providing seamless account switching without restarting.
+
+* **TUI**: Watches `auth.json` for changes via filesystem notifications, with trailing debounce so reloads happen after writes settle. Auth is deferred until any active task completes; transient read errors do not clear cached auth.
+* **App-server**: Reloads auth before `thread/start`, `thread/resume`, and `turn/start` when no turn is running, so the new account is picked up at the next safe request boundary.
+
+This enables seamless auth refresh for TUI / Codex Client users when external tools update `auth.json`.
+
+It also supports Codex App account switching via [codex-auth#103](https://github.com/Loongphy/codex-auth/pull/103).
+
+### Automatic Resumption
+
+When the TUI detects an account switch after hitting a usage limit, it automatically dispatches a recovery prompt to resume the interrupted task.
+
+You can configure this behavior using `[tui].usage_limit_resume_prompt`:
+
+* **Custom Prompt**: Define a specific string to be sent as the "resumption turn." This prompt will be used to signal the model to continue where it left off.
+* **Disable**: Set to `""` (empty string) to disable this automatic recovery behavior entirely.
+* **Default**: If left unset, the system uses the following built-in prompt:
+
+  ```text
+  Please continue from where the conversation left off after the usage limit reset or account switch.
+  ```
+
+  Example:
+
+  ```toml
+  [tui]
+  usage_limit_resume_prompt = ""
+  ```
+
+### AGENTS.md auto reload
+
+AGENTS.md and project-doc instructions are refreshed on each new user turn, and Codex shows an explicit warning when a refresh is applied.
+
+## Project Goals
+
+We will never merge code from the upstream repo; instead, we re-implement our changes on top of the latest upstream code.
+
+Iteration flow (aligned with `.agents/skills/codex-upstream-reapply`):
+
+```mermaid
+flowchart TD
+      A[Fetch upstream tags] --> B[Choose latest stable rust tag]
+      B --> C[Create fresh branch from tag]
+      C --> D[Generate old-branch reference bundle]
+      D --> E[Read intent docs and old changes<br/>CHANGED.md / README.md / AGENTS.md<br/>bundle diff / changed-files / commits]
+      E --> F[Re-implement required changes on fresh branch]
+      F --> G[Build: cargo build -p codex-cli]
+      G --> H[Review final diff against tag]
+      H --> I[Push finished branch]
 ```
 
-```shell
-# Install using Homebrew
-brew install --cask codex
+## Skills
+
+When syncing to the latest upstream codex version, use `.agents/skills/codex-upstream-reapply` to re-implement our custom requirements on top of the newest code, avoiding merge conflicts from the old branch history.
+
+Example:
+
+```
+$codex-upstream-reapply old_branch feat/rust-v0.130.0, new origin tag: rust-v0.131.0
 ```
 
-Then simply run `codex` to get started.
+## Credits
 
-<details>
-<summary>You can also go to the <a href="https://github.com/openai/codex/releases/latest">latest GitHub Release</a> and download the appropriate binary for your platform.</summary>
-
-Each GitHub Release contains many executables, but in practice, you likely want one of these:
-
-- macOS
-  - Apple Silicon/arm64: `codex-aarch64-apple-darwin.tar.gz`
-  - x86_64 (older Mac hardware): `codex-x86_64-apple-darwin.tar.gz`
-- Linux
-  - x86_64: `codex-x86_64-unknown-linux-musl.tar.gz`
-  - arm64: `codex-aarch64-unknown-linux-musl.tar.gz`
-
-Each archive contains a single entry with the platform baked into the name (e.g., `codex-x86_64-unknown-linux-musl`), so you likely want to rename it to `codex` after extracting it.
-
-</details>
-
-### Using Codex with your ChatGPT plan
-
-Run `codex` and select **Sign in with ChatGPT**. We recommend signing into your ChatGPT account to use Codex as part of your Plus, Pro, Business, Edu, or Enterprise plan. [Learn more about what's included in your ChatGPT plan](https://help.openai.com/en/articles/11369540-codex-in-chatgpt).
-
-You can also use Codex with an API key, but this requires [additional setup](https://developers.openai.com/codex/auth#sign-in-with-an-api-key).
-
-## Docs
-
-- [**Codex Documentation**](https://developers.openai.com/codex)
-- [**Contributing**](./docs/contributing.md)
-- [**Installing & building**](./docs/install.md)
-- [**Open source fund**](./docs/open-source-fund.md)
-
-This repository is licensed under the [Apache-2.0 License](LICENSE).
+Status bar design reference: <https://linux.do/t/topic/1481797>
