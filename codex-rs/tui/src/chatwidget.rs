@@ -184,6 +184,7 @@ use ratatui::widgets::Paragraph;
 use ratatui::widgets::Widget;
 use ratatui::widgets::Wrap;
 use tokio::sync::mpsc::UnboundedSender;
+use tokio::task::JoinHandle;
 use tracing::debug;
 use tracing::warn;
 
@@ -291,6 +292,8 @@ use crate::exec_cell::new_active_exec_command;
 use crate::exec_command::split_command_string;
 use crate::exec_command::strip_bash_lc_and_escape;
 use crate::get_git_diff::get_git_diff;
+use crate::git_status::GitStatusSummary;
+use crate::git_status::collect_git_status_summary;
 use crate::history_cell;
 use crate::history_cell::HistoryCell;
 use crate::history_cell::HistoryRenderMode;
@@ -306,7 +309,6 @@ use crate::keymap::ChatKeymap;
 use crate::keymap::RuntimeKeymap;
 use crate::render::Insets;
 use crate::render::renderable::ColumnRenderable;
-use crate::render::renderable::FlexRenderable;
 use crate::render::renderable::Renderable;
 use crate::render::renderable::RenderableExt;
 use crate::render::renderable::RenderableItem;
@@ -397,6 +399,7 @@ use self::status_state::StatusIndicatorState;
 use self::status_state::StatusState;
 use self::status_state::TerminalTitleStatusKind;
 mod status_controls;
+mod status_header;
 mod status_surfaces;
 mod streaming;
 use self::status_surfaces::CachedProjectRootName;
@@ -458,6 +461,30 @@ const USER_SHELL_COMMAND_HELP_HINT: &str = "Example: !ls";
 const DEFAULT_OPENAI_BASE_URL: &str = "https://api.openai.com/v1";
 const DEFAULT_STATUS_LINE_ITEMS: [&str; 2] = ["model-with-reasoning", "current-dir"];
 const MAX_AGENT_COPY_HISTORY: usize = 32;
+const RATE_LIMIT_REFRESH_INTERVAL_SECS: u64 = 15;
+const GIT_STATUS_POLL_INTERVAL_SECS: u64 = 15;
+const DEFAULT_USAGE_LIMIT_RESUME_PROMPT: &str = "Please continue from where the conversation left off after the usage limit reset or account switch.";
+
+fn rate_limit_snapshot_has_available_quota(snapshot: &RateLimitSnapshot) -> bool {
+    if snapshot.rate_limit_reached_type.is_some() {
+        return false;
+    }
+
+    let primary_available = snapshot
+        .primary
+        .as_ref()
+        .is_none_or(|window| window.used_percent < 100);
+    let secondary_available = snapshot
+        .secondary
+        .as_ref()
+        .is_none_or(|window| window.used_percent < 100);
+    let credits_available = snapshot
+        .credits
+        .as_ref()
+        .is_none_or(|credits| credits.has_credits || credits.unlimited);
+
+    primary_available && secondary_available && credits_available
+}
 
 /// Common initialization parameters shared by all `ChatWidget` constructors.
 pub(crate) struct ChatWidgetInit {
@@ -533,6 +560,11 @@ pub(crate) struct ChatWidget {
     runtime_model_provider_base_url: Option<String>,
     token_info: Option<TokenUsageInfo>,
     rate_limit_snapshots_by_limit_id: BTreeMap<String, RateLimitSnapshotDisplay>,
+    rate_limit_poller: Option<JoinHandle<()>>,
+    git_status: Option<GitStatusSummary>,
+    git_status_poller: Option<JoinHandle<()>>,
+    latest_command_cwd: Option<PathBuf>,
+    editing_root: Option<PathBuf>,
     refreshing_status_outputs: Vec<(u64, StatusHistoryHandle)>,
     next_status_refresh_request_id: u64,
     plan_type: Option<PlanType>,
@@ -704,6 +736,10 @@ pub(crate) struct ChatWidget {
     realtime_conversation: RealtimeConversationUiState,
     last_rendered_user_message_display: Option<UserMessageDisplay>,
     last_non_retry_error: Option<(String, String)>,
+    queue_autosend_blocked_by_rate_limit: bool,
+    pending_auth_reload_attempt: Option<u8>,
+    pending_usage_limit_resume_turn: Option<UserMessage>,
+    usage_limit_resume_waiting_for_auth_reload: bool,
 }
 
 #[cfg_attr(not(test), allow(dead_code))]
@@ -1434,8 +1470,8 @@ impl ChatWidget {
     }
 
     fn rename_confirmation_cell(name: &str, thread_id: Option<ThreadId>) -> PlainHistoryCell {
-        let resume_cmd =
-            resume_command(Some(name), thread_id).unwrap_or_else(|| format!("codex resume {name}"));
+        let resume_cmd = resume_command(Some(name), thread_id)
+            .unwrap_or_else(|| format!("codext resume {name}"));
         let name = name.to_string();
         let line = vec![
             "• ".into(),
@@ -1874,6 +1910,7 @@ impl Drop for ChatWidget {
     fn drop(&mut self) {
         self.reset_realtime_conversation_state();
         self.stop_rate_limit_poller();
+        self.stop_git_status_poller();
     }
 }
 

@@ -104,6 +104,7 @@ mod audio_device {
         ))
     }
 }
+mod auth_watch;
 mod bottom_pane;
 mod branch_summary;
 mod chatwidget;
@@ -129,6 +130,7 @@ mod file_search;
 mod frames;
 mod get_git_diff;
 mod git_action_directives;
+mod git_status;
 mod goal_display;
 mod history_cell;
 mod hooks_rpc;
@@ -840,10 +842,18 @@ pub async fn run_main(
         .map_or(AppServerTarget::Embedded, |endpoint| {
             AppServerTarget::Remote { endpoint }
         });
-    let remote_cwd_override = cli
-        .cwd
-        .clone()
-        .filter(|_| matches!(app_server_target, AppServerTarget::Remote { .. }));
+    let remote_cwd_override = if matches!(app_server_target, AppServerTarget::Remote { .. }) {
+        let cwd = match cli.cwd.as_deref() {
+            Some(path) => {
+                AbsolutePathBuf::from_absolute_path(canonicalize_existing_preserving_symlinks(path)?)
+                    ?
+            }
+            None => AbsolutePathBuf::current_dir()?,
+        };
+        Some(cwd.into_path_buf())
+    } else {
+        None
+    };
 
     let local_runtime_paths = ExecServerRuntimePaths::from_optional_paths(
         arg0_paths.codex_self_exe.clone(),

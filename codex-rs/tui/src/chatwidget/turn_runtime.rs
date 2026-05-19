@@ -16,6 +16,7 @@ impl ChatWidget {
         );
         self.refresh_plan_mode_nudge();
         self.refresh_status_surfaces();
+        self.maybe_dispatch_deferred_auth_reload();
     }
 
     pub(super) fn collect_runtime_metrics_delta(&mut self) {
@@ -362,6 +363,7 @@ impl ChatWidget {
     }
 
     pub(super) fn on_rate_limit_error(&mut self, error_kind: RateLimitErrorKind, message: String) {
+        self.queue_autosend_blocked_by_rate_limit = true;
         let rate_limit_reached_type = self.codex_rate_limit_reached_type.map(|kind| {
             if matches!(error_kind, RateLimitErrorKind::UsageLimit) {
                 match kind {
@@ -401,7 +403,11 @@ impl ChatWidget {
                 self.open_workspace_owner_nudge_prompt(AddCreditsNudgeCreditType::UsageLimit);
             }
             Some(RateLimitReachedType::RateLimitReached) | None => {
-                self.on_error(message);
+                if matches!(error_kind, RateLimitErrorKind::UsageLimit) {
+                    self.on_usage_limit_error(message);
+                } else {
+                    self.on_error(message);
+                }
             }
         }
     }

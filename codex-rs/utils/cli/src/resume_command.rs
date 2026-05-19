@@ -1,4 +1,4 @@
-//! Shared formatting for user-facing `codex resume` command hints.
+//! Shared formatting for user-facing `codext resume` command hints.
 
 use codex_protocol::ThreadId;
 use codex_shell_command::parse_command::shlex_join;
@@ -12,9 +12,9 @@ pub fn resume_command(thread_name: Option<&str>, thread_id: Option<ThreadId>) ->
         let needs_double_dash = target.starts_with('-');
         let escaped = shlex_join(&[target]);
         if needs_double_dash {
-            format!("codex resume -- {escaped}")
+            format!("codext resume -- {escaped}")
         } else {
-            format!("codex resume {escaped}")
+            format!("codext resume {escaped}")
         }
     })
 }

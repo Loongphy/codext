@@ -60,6 +60,7 @@ pub(crate) struct AccountRequestProcessor {
     outgoing: Arc<OutgoingMessageSender>,
     config: Arc<Config>,
     config_manager: ConfigManager,
+    thread_watch_manager: ThreadWatchManager,
     active_login: Arc<Mutex<Option<ActiveLogin>>>,
 }
 
@@ -70,6 +71,7 @@ impl AccountRequestProcessor {
         outgoing: Arc<OutgoingMessageSender>,
         config: Arc<Config>,
         config_manager: ConfigManager,
+        thread_watch_manager: ThreadWatchManager,
     ) -> Self {
         Self {
             auth_manager,
@@ -77,6 +79,7 @@ impl AccountRequestProcessor {
             outgoing,
             config,
             config_manager,
+            thread_watch_manager,
             active_login: Arc::new(Mutex::new(None)),
         }
     }
@@ -807,6 +810,32 @@ impl AccountRequestProcessor {
         params: GetAccountParams,
     ) -> Result<GetAccountResponse, JSONRPCErrorError> {
         let do_refresh = params.refresh_token;
+
+        if params.reload_auth_from_storage
+            && *self
+                .thread_watch_manager
+                .subscribe_running_turn_count()
+                .borrow()
+                == 0
+        {
+            let status = self.auth_manager.reload_with_status().await;
+            match handle_auth_reload_status(
+                status,
+                &self.auth_manager,
+                &self.thread_manager,
+                &self.config_manager,
+                &self.outgoing,
+                &self.config.chatgpt_base_url,
+                "account/get",
+            )
+            .await
+            {
+                AuthReloadStatus::Reloaded { .. } => {}
+                AuthReloadStatus::Failed => {
+                    return Err(internal_error("failed to reload auth from storage"));
+                }
+            }
+        }
 
         self.refresh_token_if_requested(do_refresh).await;
 
