@@ -43,8 +43,12 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          sudo apt-get update -y
-          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends pkg-config libcap-dev libubsan1
+          apt_retry_args=(
+            -o Acquire::Retries=5
+            -o Acquire::http::Timeout=30
+          )
+          sudo apt-get "${apt_retry_args[@]}" update -y
+          sudo DEBIAN_FRONTEND=noninteractive apt-get "${apt_retry_args[@]}" install -y --no-install-recommends pkg-config libcap-dev libubsan1
 
       - uses: dtolnay/rust-toolchain@1.93.0
         with:
