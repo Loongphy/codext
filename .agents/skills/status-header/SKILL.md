@@ -1,6 +1,6 @@
 ---
 name: status-header
-description: 'Enforce the standard TUI status header layout, icons, colors, and rate-limit summary format, and keep equivalent tui and tui_app_server surfaces aligned.'
+description: 'Enforce the standard TUI status header layout, icons, colors, and rate-limit summary format, and keep equivalent TUI surfaces aligned when more than one exists.'
 ---
 
 # Status Header
@@ -9,10 +9,10 @@ Apply these conventions every time the status header bar is implemented or modif
 
 ## Scope and synchronization
 
-- Before editing the header, identify every implementation that renders the same user-visible surface. In this repo that usually means both `codex-rs/tui` and `codex-rs/tui_app_server`.
-- If both implementations expose the same header, keep them aligned. Do not mark the task complete after changing only one side unless the other side has been intentionally removed upstream or there is a documented reason not to sync it.
+- Before editing the header, identify every implementation that renders the same user-visible surface. In the current upstream layout this is the app-server-backed `codex-rs/tui` surface.
+- If another implementation also exposes the same header, keep them aligned. Do not mark the task complete after changing only one side unless the other side has been intentionally removed upstream or there is a documented reason not to sync it.
 - Do not assume the classic `tui` is the runtime path users see. Check the current dispatch path for the target tag/config before deciding which implementation to edit.
-- Match behavior first, not plumbing. The classic `tui` may use local polling, while `tui_app_server` may use bootstrap data or app-server events; either is acceptable as long as the rendered header stays behaviorally aligned and fresh.
+- Match behavior first, not plumbing. Different TUI surfaces may use local polling, bootstrap data, or app-server events; any source is acceptable as long as the rendered header stays behaviorally aligned and fresh.
 
 ## Required color mapping
 
@@ -95,10 +95,10 @@ exact code.
 - If a status-header segment depends on background-polled or async state (for example rate-limit
   data fetched from `/usage`), the update path must explicitly request a redraw/frame after the
   cached state changes so the header updates while the UI is otherwise idle.
-- The redraw requirement applies to every implementation that renders the header. If `tui` and
-  `tui_app_server` both show the header, each side needs its own refresh path and redraw trigger.
-- For `tui_app_server`, do not assume the rate-limit source is local `/usage` polling; event-driven
-  or bootstrap-fed data is acceptable if it keeps the header equivalently fresh.
+- The redraw requirement applies to every implementation that renders the header. If multiple
+  TUI surfaces show the header, each side needs its own refresh path and redraw trigger.
+- Do not assume the rate-limit source must be local `/usage` polling; event-driven or
+  bootstrap-fed data is acceptable if it keeps the header equivalently fresh.
 - In this fork's app-server-backed `codex-rs/tui`, keep ChatGPT rate-limit snapshots fresh with a
   15-second background refresh cadence and redraw the UI after each successful snapshot update.
 - Treat the directory segment as the session/thread `cwd`, not the transient `workdir` of an

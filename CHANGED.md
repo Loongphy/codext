@@ -10,7 +10,6 @@ This file captures the fork-specific behavior reapplied on top of the current up
 - On WSL2, composer draft copy reuses the existing Windows clipboard fallback so copies still land in the Windows system clipboard.
 - `Ctrl+Shift+C` now takes its own composer-copy path instead of falling through to the existing `Ctrl+C` clear/interrupt/quit behavior when draft text is present.
 - Added footer shortcut help text for the new draft-copy binding.
-- `rust-v0.118.0` removed the old `tui_app_server` crate upstream, so this behavior now lives in the app-server-backed `codex-rs/tui` surface only.
 
 ## TUI status header and polling
 
@@ -19,7 +18,6 @@ This file captures the fork-specific behavior reapplied on top of the current up
 - The directory segment represents the session/thread `cwd`, not a one-off tool `workdir`.
 - When the session `cwd` changes (for example after switching into a new worktree), the git-status poller now rebinds to that new `cwd`, clears stale git state, and ignores late results from the previous `cwd`.
 - ChatGPT `5h` / weekly usage-limit snapshots in the TUI now refresh in the background every 15 seconds, so the header and any `/statusline` limit items keep moving while the UI is otherwise idle.
-- `rust-v0.118.0` removed the old `tui_app_server` crate upstream, so the reapply keeps only the surviving TUI path aligned with the status-header skill.
 
 ## TUI auth.json watcher
 
@@ -43,11 +41,6 @@ This file captures the fork-specific behavior reapplied on top of the current up
 - While autosend is paused, pressing Tab still queues new messages even when no turn is currently running.
 - When a later Codex rate-limit snapshot shows quota available again, Codext resumes autosend and submits exactly the first queued user message; any additional queued messages remain queued for normal FIFO draining after that turn completes.
 - If both a parked usage-limit recovery prompt and user-queued follow-ups exist when quota recovers, the user-queued follow-up wins and the stale synthetic recovery prompt is cleared.
-
-## Approval fallback when auto-review is unavailable
-
-- When automatic approval review times out or fails internally (for example, the reviewer hits a usage limit), sandbox approval requests now fall back to an explicit user approval prompt instead of stopping at a hard auto-review denial.
-- The TUI no longer renders a misleading `Request denied ...` history line for those reviewer-failure cases; the warning remains visible and the manual approval prompt follows.
 
 ## AGENTS.md reload semantics
 
