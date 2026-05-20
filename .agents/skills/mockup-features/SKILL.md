@@ -33,6 +33,19 @@ For screenshots or demos of queued messages during a usage limit:
   first queued user message should be eligible for autosend and the rest should remain queued for
   FIFO draining.
 
+## Auth Change Account Description Mockup
+
+For screenshots of the TUI account-change notice after `auth.json` changes:
+
+- Gate the mockup with `CODEXT_AUTH_CHANGE_SCREENSHOT`.
+- Start the TUI with the env var enabled; no `auth.json` edit is required.
+- When enabled, inject a deterministic switch from
+  `alex@example.com (Pro)` to `workspace@example.com (Business)`.
+- Update the status account state to the destination account so the status panel and history notice
+  agree.
+- Cleanup: remove `AUTH_CHANGE_SCREENSHOT_ENV_VAR`, `auth_change_screenshot_mock`, and the
+  startup injection in `tui/src/app.rs`.
+
 ## Cleanup
 
 - Revert any mockup-only imports, fields, helpers, constructor wiring, and test-helper plumbing from
