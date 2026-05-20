@@ -2,7 +2,7 @@
 
 An opinionated Codex CLI. This is strictly a personal hobby project, forked from openai/codex.
 
-> ![Status Header Preview](https://github.com/user-attachments/assets/23350e86-2597-48ea-82a6-378f8f01ac74)
+![Preview](https://github.com/user-attachments/assets/23350e86-2597-48ea-82a6-378f8f01ac74)
 
 ## Quick Start
 
@@ -23,54 +23,62 @@ cargo run --bin codex
 
 ## Features
 
-
 > Full change log: see [CHANGED.md](./CHANGED.md).
 
 ---
 
 ### TUI: Status Header
-The TUI header now provides a comprehensive overview of your current workspace:
+
+The TUI header provides a compact overview of the active session:
+
 * **Context**: Displays the active model, effort level, and current working directory (`cwd`).
-* **Git Status**: Real-time summary of your repository state.
-* **Rate Limits**: Instant visibility into your API rate-limit status.
-> ![Status Header Preview](https://github.com/user-attachments/assets/23350e86-2597-48ea-82a6-378f8f01ac74)
+* **Git Status**: Background-polled summary of the repository state for the session `cwd`.
+* **Rate Limits**: ChatGPT usage-limit snapshots that refresh while the UI is idle.
+
+![Status Header Preview](https://github.com/user-attachments/assets/23350e86-2597-48ea-82a6-378f8f01ac74)
 
 ### Copy to Clipboard
 
 * **`Ctrl+Shift+C`**: Copies the current draft to the system clipboard.
 * **`Ctrl+C`**: Retains existing behavior; remains backward-compatible with legacy logic when the draft is empty.
 
-### Prompt Queueing on usage limit
+### Prompt Queue on usage limit
 
-<img width="2920" height="943" alt="PixPin_2026-05-13_21-37-32" src="https://github.com/user-attachments/assets/534e927d-a306-4fef-b97c-629542bf8906" />
+![Prompt Queue](https://github.com/user-attachments/assets/534e927d-a306-4fef-b97c-629542bf8906)
 
-Tab-queued follow-up messages are kept when usage limits are reached.
+This feature helps manage follow-up messages when quota or rate limits are reached:
 
-Codex pauses queued-message autosend while rate-limited, still allows Tab to add more queued messages, and automatically sends only the first queued user message once a later rate-limit snapshot shows quota is available again.
+* **Paused and Waiting**: Queued messages wait instead of being sent into more failed turns.
+* **Append While Limited**: Even while autosend is paused, you can still press `Tab` to add messages to the queue.
+* **Resume on Availability**: Once a later rate-limit snapshot shows quota is available again, Codext sends the **first** queued message.
 
-Remaining messages stay queued for normal FIFO draining.
+### Account Switching
 
-### Automatic Account switch
-TUI now monitors `auth.json` for external changes, automatically reloads authentication after external writes settle.
+![Account Changed](https://github.com/user-attachments/assets/35059463-b846-45c7-9d05-57a6e1082d8d)
 
-Fully compatible with [codex-auth](https://github.com/Loongphy/codex-auth) for seamless external login management.
+Codex now reloads authentication after external `auth.json` writes settle, so account changes can be picked up without restarting at safe boundaries.
 
-### App-server Account Switching
+* **TUI**: Watches `auth.json` for changes via filesystem notifications, with trailing debounce so reloads happen after writes settle. Auth is deferred until any active task completes; transient read errors do not clear cached auth.
+* **App-server**: Reloads auth before `thread/start`, `thread/resume`, and `turn/start` when no turn is running, so the new account is picked up at the next safe request boundary.
 
-The app-server reloads auth before `thread/start`, `thread/resume`, and `turn/start` when no turn is running, so Codex App can pick up a newly selected account at the next safe request boundary.
+This enables auth refresh for TUI and Codex App flows when external tools update `auth.json`.
 
-This supports Codex App account switching via [codex-auth#103](https://github.com/Loongphy/codex-auth/pull/103).
+It also supports Codex App account switching via [codex-auth#103](https://github.com/Loongphy/codex-auth/pull/103).
 
 ### Automatic Resumption
-When the TUI detects an account switch after hitting a usage limit, it automatically dispatches a recovery prompt to resume the interrupted task.
+
+After a turn stops on `UsageLimitExceeded`, the TUI can park a recovery prompt and dispatch it after a later `auth.json` reload changes account identity.
 
 You can configure this behavior using `[tui].usage_limit_resume_prompt`:
+
 * **Custom Prompt**: Define a specific string to be sent as the "resumption turn." This prompt will be used to signal the model to continue where it left off.
 * **Disable**: Set to `""` (empty string) to disable this automatic recovery behavior entirely.
 * **Default**: If left unset, the system uses the following built-in prompt:
+
   ```text
   Please continue from where the conversation left off after the usage limit reset or account switch.
   ```
+
   Example:
 
   ```toml
@@ -90,13 +98,14 @@ Iteration flow (aligned with `.agents/skills/codex-upstream-reapply`):
 
 ```mermaid
 flowchart TD
-    A[Freeze old branch: commit changes + intent docs] --> B[Fetch upstream tags]
-    B --> C[Pick tag + create new branch from tag]
-    C --> D[Generate reimplementation bundle]
-    D --> E[Read old branch + bundle for intent]
-    E --> F[Re-implement changes on new branch]
-    F --> G[Sanity check diffs vs tag]
-    G --> H[Force-push to fork main]
+      A[Fetch upstream tags] --> B[Choose latest stable rust tag]
+      B --> C[Create fresh branch from tag]
+      C --> D[Generate old-branch reference bundle]
+      D --> E[Read intent docs and old changes<br/>CHANGED.md / README.md / AGENTS.md<br/>bundle diff / changed-files / commits]
+      E --> F[Re-implement required changes on fresh branch]
+      F --> G[Build: cargo build -p codex-cli]
+      G --> H[Review final diff against tag]
+      H --> I[Push finished branch]
 ```
 
 ## Skills
@@ -106,7 +115,7 @@ When syncing to the latest upstream codex version, use `.agents/skills/codex-ups
 Example:
 
 ```
-$codex-upstream-reapply old_branch feat/rust-v0.94.0, new origin tag: rust-v0.98.0
+$codex-upstream-reapply old_branch feat/rust-v0.130.0, new origin tag: rust-v0.131.0
 ```
 
 ## Credits
