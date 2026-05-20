@@ -33,6 +33,10 @@ impl ChatWidget {
         self.current_rollout_path = session.rollout_path.clone();
         self.current_cwd = Some(session.cwd.to_path_buf());
         self.config.cwd = session.cwd.clone();
+        self.latest_command_cwd = None;
+        self.editing_root = None;
+        self.git_status = None;
+        self.start_git_status_poller();
         let runtime_workspace_roots = session.runtime_workspace_roots.clone();
         self.config.workspace_roots = runtime_workspace_roots.clone();
         self.config

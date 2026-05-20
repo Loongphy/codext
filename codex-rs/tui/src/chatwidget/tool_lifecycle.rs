@@ -7,6 +7,8 @@ use super::*;
 
 impl ChatWidget {
     pub(super) fn on_patch_apply_begin(&mut self, changes: HashMap<PathBuf, FileChange>) {
+        self.editing_root = editing_root_for_changes(&changes, self.status_line_cwd());
+        self.refresh_status_surfaces();
         self.add_to_history(history_cell::new_patch_event(changes, &self.config.cwd));
     }
 
@@ -261,4 +263,68 @@ impl ChatWidget {
             _ => {}
         }
     }
+}
+
+fn editing_root_for_changes(
+    changes: &HashMap<PathBuf, FileChange>,
+    turn_cwd: &Path,
+) -> Option<PathBuf> {
+    let mut roots = Vec::new();
+    for (path, change) in changes {
+        push_edit_path_root(&mut roots, path, turn_cwd);
+        if let FileChange::Update {
+            move_path: Some(move_path),
+            ..
+        } = change
+        {
+            push_edit_path_root(&mut roots, move_path, turn_cwd);
+        }
+    }
+
+    let mut root = roots.into_iter().next()?;
+    for next in changes
+        .iter()
+        .flat_map(|(path, change)| edit_path_roots(path, change, turn_cwd))
+    {
+        root = common_path_prefix(root.as_path(), next.as_path())?;
+    }
+    Some(root)
+}
+
+fn edit_path_roots(path: &Path, change: &FileChange, turn_cwd: &Path) -> Vec<PathBuf> {
+    let mut roots = Vec::new();
+    push_edit_path_root(&mut roots, path, turn_cwd);
+    if let FileChange::Update {
+        move_path: Some(move_path),
+        ..
+    } = change
+    {
+        push_edit_path_root(&mut roots, move_path, turn_cwd);
+    }
+    roots
+}
+
+fn push_edit_path_root(roots: &mut Vec<PathBuf>, path: &Path, turn_cwd: &Path) {
+    let absolute_path = if path.is_absolute() {
+        path.to_path_buf()
+    } else {
+        turn_cwd.join(path)
+    };
+    roots.push(
+        absolute_path
+            .parent()
+            .map(Path::to_path_buf)
+            .unwrap_or(absolute_path),
+    );
+}
+
+fn common_path_prefix(a: &Path, b: &Path) -> Option<PathBuf> {
+    let mut prefix = PathBuf::new();
+    for (left, right) in a.components().zip(b.components()) {
+        if left != right {
+            break;
+        }
+        prefix.push(left.as_os_str());
+    }
+    (!prefix.as_os_str().is_empty()).then_some(prefix)
 }
