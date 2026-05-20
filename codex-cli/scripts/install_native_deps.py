@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Install Codex native binaries (Rust CLI, bwrap, and ripgrep helpers)."""
+"""Install Codex native binaries (Rust CLI plus ripgrep helpers)."""
 
 import argparse
 from contextlib import contextmanager
@@ -29,7 +29,6 @@ BINARY_TARGETS = (
     "x86_64-apple-darwin",
     "aarch64-apple-darwin",
     "x86_64-pc-windows-msvc",
-    "aarch64-pc-windows-msvc",
 )
 
 
@@ -42,15 +41,8 @@ class BinaryComponent:
 
 
 WINDOWS_TARGETS = tuple(target for target in BINARY_TARGETS if "windows" in target)
-LINUX_TARGETS = tuple(target for target in BINARY_TARGETS if "linux" in target)
 
 BINARY_COMPONENTS = {
-    "bwrap": BinaryComponent(
-        artifact_prefix="bwrap",
-        dest_dir="codex-resources",
-        binary_basename="bwrap",
-        targets=LINUX_TARGETS,
-    ),
     "codex": BinaryComponent(
         artifact_prefix="codex",
         dest_dir="codex",
@@ -81,7 +73,6 @@ RG_TARGET_PLATFORM_PAIRS: list[tuple[str, str]] = [
     ("x86_64-apple-darwin", "macos-x86_64"),
     ("aarch64-apple-darwin", "macos-aarch64"),
     ("x86_64-pc-windows-msvc", "windows-x86_64"),
-    ("aarch64-pc-windows-msvc", "windows-aarch64"),
 ]
 RG_TARGET_TO_PLATFORM = {target: platform for target, platform in RG_TARGET_PLATFORM_PAIRS}
 DEFAULT_RG_TARGETS = [target for target, _ in RG_TARGET_PLATFORM_PAIRS]
@@ -142,7 +133,7 @@ def parse_args() -> argparse.Namespace:
         choices=tuple(list(BINARY_COMPONENTS) + ["rg"]),
         help=(
             "Limit installation to the specified components."
-            " May be repeated. Defaults to bwrap, codex, codex-windows-sandbox-setup,"
+            " May be repeated. Defaults to codex, codex-windows-sandbox-setup,"
             " codex-command-runner, and rg."
         ),
     )
@@ -166,29 +157,30 @@ def main() -> int:
     vendor_dir.mkdir(parents=True, exist_ok=True)
 
     components = args.components or [
-        "bwrap",
         "codex",
         "codex-windows-sandbox-setup",
         "codex-command-runner",
         "rg",
     ]
 
-    workflow_url = (args.workflow_url or DEFAULT_WORKFLOW_URL).strip()
-    if not workflow_url:
-        workflow_url = DEFAULT_WORKFLOW_URL
+    binary_components = [BINARY_COMPONENTS[name] for name in components if name in BINARY_COMPONENTS]
+    if binary_components:
+        workflow_url = (args.workflow_url or DEFAULT_WORKFLOW_URL).strip()
+        if not workflow_url:
+            workflow_url = DEFAULT_WORKFLOW_URL
 
-    workflow_id = workflow_url.rstrip("/").split("/")[-1]
-    print(f"Downloading native artifacts from workflow {workflow_id}...")
+        workflow_id = workflow_url.rstrip("/").split("/")[-1]
+        print(f"Downloading native artifacts from workflow {workflow_id}...")
 
-    with _gha_group(f"Download native artifacts from workflow {workflow_id}"):
-        with tempfile.TemporaryDirectory(prefix="codex-native-artifacts-") as artifacts_dir_str:
-            artifacts_dir = Path(artifacts_dir_str)
-            _download_artifacts(workflow_id, artifacts_dir)
-            install_binary_components(
-                artifacts_dir,
-                vendor_dir,
-                [BINARY_COMPONENTS[name] for name in components if name in BINARY_COMPONENTS],
-            )
+        with _gha_group(f"Download native artifacts from workflow {workflow_id}"):
+            with tempfile.TemporaryDirectory(prefix="codex-native-artifacts-") as artifacts_dir_str:
+                artifacts_dir = Path(artifacts_dir_str)
+                _download_artifacts(workflow_id, artifacts_dir)
+                install_binary_components(
+                    artifacts_dir,
+                    vendor_dir,
+                    binary_components,
+                )
 
     if "rg" in components:
         with _gha_group("Fetch ripgrep binaries"):

@@ -1,5 +1,17 @@
 # Rust/codex-rs
 
+<!-- codex-upstream-reapply:start -->
+## Temporary Reapply Guardrails (`rust-v0.132.0`)
+
+- Current work on this branch is an upstream reapply / re-implementation for `rust-v0.132.0`.
+- Only implementation code and necessary docs may change for this task. Do not add or modify tests or snapshot files.
+- Do not run lint / format / auto-fix commands for this reapply, including `cargo fmt`, `just fmt`, `cargo clippy`, `cargo clippy --fix`, and `just fix`.
+- Acceptance for this reapply is limited to the `codex-upstream-reapply` skill criteria, including `cd codex-rs && cargo build -p codex-cli` and `cd codex-rs && cargo build -p codex-cli --release`.
+<!-- codex-upstream-reapply:end -->
+
+
+
+
 In the codex-rs folder where the rust code lives:
 
 - Crate names are prefixed with `codex-`. For example, the `core` folder's crate is named `codex-core`
@@ -26,7 +38,7 @@ In the codex-rs folder where the rust code lives:
   - Implementations may still use `async fn foo(&self, ...) -> T` when they satisfy that contract.
   - Do not use `#[allow(async_fn_in_trait)]` as a shortcut around spelling the future contract explicitly.
 - When writing tests, prefer comparing the equality of entire objects over fields one by one.
-- Do not add general product or user-facing documentation to the `docs/` folder. The official Codex documentation lives elsewhere. The exception is app-server API documentation, which is covered by the app-server guidance below.
+- When making a change that adds or changes an API, ensure that the documentation in the `docs/` folder is up to date if applicable.
 - Prefer private modules and explicitly exported public crate API.
 - If you change `ConfigToml` or nested config types, run `just write-config-schema` to update `codex-rs/core/config.schema.json`.
 - When working with MCP tool calls, prefer using `codex-rs/codex-mcp/src/mcp_connection_manager.rs` to handle mutation of tools and tool calls. Aim to minimize the footprint of changes and leverage existing abstractions rather than plumbing code through multiple levels of function calls.
@@ -130,7 +142,7 @@ When UI or text output changes intentionally, update the snapshots as follows:
 
 If you don’t have the tool:
 
-- `cargo install --locked cargo-insta`
+- `cargo install cargo-insta`
 
 ### Test assertions
 
@@ -210,7 +222,7 @@ These guidelines apply to app-server protocol work in `codex-rs`, especially:
 
 ### Development Workflow
 
-- Update app-server docs/examples when API behavior changes (at minimum `app-server/README.md`).
+- Update docs/examples when API behavior changes (at minimum `app-server/README.md`).
 - Regenerate schema fixtures when API shapes change:
   `just write-app-server-schema`
   (and `just write-app-server-schema --experimental` when experimental API fixtures are affected).

@@ -1,0 +1,40 @@
+---
+name: mockup-features
+description: Create temporary Codex feature mockups for screenshots, demos, and product review without preserving production code changes.
+---
+
+# Mockup Features
+
+Use this skill when the user asks to turn a temporary local feature change into a reusable mockup,
+demo, or screenshot aid instead of keeping the implementation in product code.
+
+## Workflow
+
+- Inspect the current diff and identify the user-visible state the mockup was trying to show.
+- Capture the smallest repeatable recipe: trigger, fake data, visible UI state, and cleanup notes.
+- Prefer an environment-variable gate for screenshot-only behavior, named after the feature and
+  scoped so normal runtime behavior is unchanged.
+- Keep mockup code isolated and easy to delete. Do not add compatibility fallbacks for a mockup.
+- After documenting the recipe in this skill, remove the temporary product-code changes unless the
+  user explicitly asks to keep them.
+
+## Usage-Limit Queue Mockup
+
+For screenshots or demos of queued messages during a usage limit:
+
+- Gate the mockup with an env var such as `CODEXT_USAGE_LIMIT_SCREENSHOT`.
+- When enabled, inject a rate-limit snapshot that is fully exhausted and resets in a short,
+  deterministic-looking interval such as 42 minutes.
+- Show the normal usage-limit warning text using the same production formatter as real
+  `UsageLimitReachedError` messages.
+- Mark queued-message autosend as blocked by the rate limit.
+- Seed a couple of Tab-queued follow-up user messages so the queue UI is visible.
+- Keep Tab queueing available while rate-limited; when quota recovery is later simulated, only the
+  first queued user message should be eligible for autosend and the rest should remain queued for
+  FIFO draining.
+
+## Cleanup
+
+- Revert any mockup-only imports, fields, helpers, constructor wiring, and test-helper plumbing from
+  product code after extracting the recipe.
+- Commit only the skill artifacts unless the user requested a production implementation.
