@@ -168,6 +168,7 @@ use ratatui::widgets::Wrap;
 use std::collections::BTreeMap;
 use std::collections::HashMap;
 use std::collections::VecDeque;
+use std::env;
 use std::io::Write;
 use std::path::Path;
 use std::path::PathBuf;
@@ -597,6 +598,7 @@ fn active_turn_steer_race(error: &TypedRequestError) -> Option<ActiveTurnSteerRa
 
 const AUTH_RELOAD_RETRY_DELAY: Duration = Duration::from_secs(5);
 const AUTH_RELOAD_MAX_ATTEMPTS: u8 = 3;
+const AUTH_CHANGE_SCREENSHOT_ENV_VAR: &str = "CODEXT_AUTH_CHANGE_SCREENSHOT";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct AuthIdentity {
@@ -649,13 +651,64 @@ impl AuthIdentity {
 
 fn auth_change_message(previous: &AuthIdentity, next: &AuthIdentity) -> String {
     format!(
-        "auth.json changed. Reloaded account from {} to {}.",
+        "Account changed from {} to {}.",
         previous.display_label(),
         next.display_label()
     )
 }
 
+fn auth_change_screenshot_mock() -> Option<(
+    AuthIdentity,
+    AuthIdentity,
+    Option<StatusAccountDisplay>,
+    Option<codex_protocol::account::PlanType>,
+)> {
+    if env::var_os(AUTH_CHANGE_SCREENSHOT_ENV_VAR).is_none() {
+        return None;
+    }
+
+    let previous_plan_type = codex_protocol::account::PlanType::Pro;
+    let next_plan_type = codex_protocol::account::PlanType::EnterpriseCbpUsageBased;
+    let previous = AuthIdentity {
+        email: Some("alex@example.com".to_string()),
+        plan_type: Some(previous_plan_type),
+        has_chatgpt_account: true,
+    };
+    let next = AuthIdentity {
+        email: Some("workspace@example.com".to_string()),
+        plan_type: Some(next_plan_type),
+        has_chatgpt_account: true,
+    };
+    let status_account_display = Some(StatusAccountDisplay::ChatGpt {
+        email: next.email.clone(),
+        plan: Some(crate::status::plan_type_display_name(next_plan_type)),
+    });
+
+    Some((previous, next, status_account_display, Some(next_plan_type)))
+}
+
 impl App {
+    fn apply_auth_change_screenshot_mock(&mut self) {
+        let Some((previous_identity, next_identity, status_account_display, plan_type)) =
+            auth_change_screenshot_mock()
+        else {
+            return;
+        };
+
+        self.chat_widget.update_account_state(
+            status_account_display,
+            plan_type,
+            /*has_chatgpt_account*/ true,
+        );
+        self.chat_widget.handle_auth_identity_changed();
+        self.chat_widget
+            .add_to_history(history_cell::new_warning_event(auth_change_message(
+                &previous_identity,
+                &next_identity,
+            )));
+        self.chat_widget.on_auth_reload_completed(/*identity_changed*/ true);
+    }
+
     fn schedule_auth_reload_retry(&self, attempt: u8) {
         let app_event_tx = self.app_event_tx.clone();
         tokio::spawn(async move {
@@ -1085,6 +1138,7 @@ See the Codex keymap documentation for supported actions and examples."
                     .await;
             }
         }
+        app.apply_auth_change_screenshot_mock();
 
         // On startup, if a managed filesystem sandbox is active, warn about
         // world-writable dirs on Windows.

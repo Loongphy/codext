@@ -335,7 +335,6 @@ impl MessageProcessor {
             outgoing.clone(),
             Arc::clone(&config),
             config_manager.clone(),
-            thread_watch_manager.clone(),
         );
         let apps_processor = AppsRequestProcessor::new(
             auth_manager.clone(),

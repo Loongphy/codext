@@ -46,8 +46,6 @@ The TUI header now provides a comprehensive overview of your current workspace:
 
 ![Prompt Queue](https://github.com/user-attachments/assets/534e927d-a306-4fef-b97c-629542bf8906)
 
-### Prompt Queue
-
 This feature helps manage your follow-up messages when AI usage limits are reached:
 
 * **Paused and Waiting**: When usage limits are triggered, messages in the queue will wait instead of being sent automatically.
@@ -55,6 +53,8 @@ This feature helps manage your follow-up messages when AI usage limits are reach
 * **Auto-Send on Reset**: Once your quota becomes available again, Codex will automatically send the **first** queued message.
 
 ### Account Switching
+
+![Account Changed](https://github.com/user-attachments/assets/35059463-b846-45c7-9d05-57a6e1082d8d)
 
 Codex now monitors `auth.json` for external changes and automatically reloads authentication after external writes settle, providing seamless account switching without restarting.
 

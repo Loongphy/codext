@@ -55,7 +55,6 @@ This file captures the fork-specific behavior reapplied on top of the current up
 ## App-server auth.json account switching
 
 - The app-server now reloads auth from storage before `thread/start`, `thread/resume`, and `turn/start` when no turn is running.
-- This change supports Codex App account switching through [Loongphy/codex-auth#103](https://github.com/Loongphy/codex-auth/pull/103), while TUI / Codex Client users get seamless auth refresh when external tools update `auth.json`.
 - Auth is still not hot-swapped in the middle of an active turn; reload is skipped while `running_turn_count` is nonzero and the next request boundary gets the new auth.
 - ChatGPT account/workspace switches inside the same auth mode are treated as auth changes by comparing the refresh-relevant auth snapshot, not only the top-level auth mode.
 - When a reload changes auth, loaded threads invalidate their cached model transport state so a reused WebSocket session created under the previous account is not used for the next turn.
