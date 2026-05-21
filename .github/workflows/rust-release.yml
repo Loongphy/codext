@@ -21,7 +21,10 @@ jobs:
       run:
         working-directory: codex-rs
     env:
-      CARGO_PROFILE_RELEASE_LTO: thin
+      ACTIONS_RUNNER_DEBUG: true
+      ACTIONS_STEP_DEBUG: true
+      CARGO_BUILD_JOBS: 1
+      CARGO_PROFILE_RELEASE_LTO: off
     strategy:
       fail-fast: false
       matrix:
@@ -30,13 +33,21 @@ jobs:
             target: x86_64-unknown-linux-musl
           - runner: ubuntu-24.04-arm
             target: aarch64-unknown-linux-musl
-          - runner: macos-15-intel
-            target: x86_64-apple-darwin
-          - runner: macos-15
-            target: aarch64-apple-darwin
 
     steps:
       - uses: actions/checkout@v6
+
+      - name: Print runner diagnostics
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "runner.os=${RUNNER_OS}"
+          echo "runner.arch=${RUNNER_ARCH}"
+          echo "target=${{ matrix.target }}"
+          echo "nproc=$(nproc)"
+          free -h
+          df -h
+          ulimit -a
 
       - name: Install Linux build dependencies
         if: ${{ runner.os == 'Linux' }}
@@ -173,7 +184,10 @@ jobs:
 
       - name: Cargo build
         shell: bash
-        run: cargo build --locked --target ${{ matrix.target }} --release -p codex-cli --bin codex
+        run: |
+          set -euo pipefail
+          trap 'echo "Cargo build exit status $?"; free -h; df -h' EXIT
+          cargo build --locked --target ${{ matrix.target }} --release -p codex-cli --bin codex
 
       - uses: actions/upload-artifact@v7
         with:
@@ -182,6 +196,7 @@ jobs:
           if-no-files-found: error
 
   build-windows:
+    if: ${{ false }}
     name: Build - windows-2025 - ${{ matrix.target }}
     runs-on: windows-2025
     timeout-minutes: 90
@@ -234,6 +249,7 @@ jobs:
           if-no-files-found: error
 
   publish-release:
+    if: ${{ false }}
     needs:
       - build-unix
       - build-windows
@@ -347,6 +363,7 @@ jobs:
             --clobber
 
   publish-npm:
+    if: ${{ false }}
     needs:
       - build-unix
       - build-windows
