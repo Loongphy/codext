@@ -55,7 +55,7 @@ jobs:
       - name: Limit Linux musl Cargo jobs
         if: ${{ contains(matrix.target, 'unknown-linux-musl') }}
         shell: bash
-        run: echo "CARGO_BUILD_JOBS=1" >> "$GITHUB_ENV"
+        run: echo "CARGO_BUILD_JOBS=2" >> "$GITHUB_ENV"
 
       - name: Install Linux build dependencies
         if: ${{ runner.os == 'Linux' }}
@@ -110,7 +110,7 @@ jobs:
 
       - name: Install Zig
         if: ${{ contains(matrix.target, 'unknown-linux-musl') }}
-        uses: mlugg/setup-zig@d1434d08867e3ee9daa34448df10607b98908d29
+        uses: Loongphy/setup-zig@node24-lts-runtime
         with:
           version: 0.14.0
 
