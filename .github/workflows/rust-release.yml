@@ -21,10 +21,8 @@ jobs:
       run:
         working-directory: codex-rs
     env:
-      ACTIONS_RUNNER_DEBUG: true
-      ACTIONS_STEP_DEBUG: true
-      CARGO_BUILD_JOBS: 1
-      CARGO_PROFILE_RELEASE_LTO: off
+      CARGO_PROFILE_RELEASE_LTO: thin
+      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
     strategy:
       fail-fast: false
       matrix:
@@ -33,11 +31,16 @@ jobs:
             target: x86_64-unknown-linux-musl
           - runner: ubuntu-24.04-arm
             target: aarch64-unknown-linux-musl
+          - runner: macos-15-intel
+            target: x86_64-apple-darwin
+          - runner: macos-15
+            target: aarch64-apple-darwin
 
     steps:
       - uses: actions/checkout@v6
 
-      - name: Print runner diagnostics
+      - name: Print Linux runner diagnostics
+        if: ${{ runner.os == 'Linux' }}
         shell: bash
         run: |
           set -euo pipefail
@@ -48,6 +51,11 @@ jobs:
           free -h
           df -h
           ulimit -a
+
+      - name: Limit Linux musl Cargo jobs
+        if: ${{ contains(matrix.target, 'unknown-linux-musl') }}
+        shell: bash
+        run: echo "CARGO_BUILD_JOBS=1" >> "$GITHUB_ENV"
 
       - name: Install Linux build dependencies
         if: ${{ runner.os == 'Linux' }}
@@ -184,10 +192,7 @@ jobs:
 
       - name: Cargo build
         shell: bash
-        run: |
-          set -euo pipefail
-          trap 'echo "Cargo build exit status $?"; free -h; df -h' EXIT
-          cargo build --locked --target ${{ matrix.target }} --release -p codex-cli --bin codex
+        run: cargo build --locked --target ${{ matrix.target }} --release -p codex-cli --bin codex
 
       - uses: actions/upload-artifact@v7
         with:
@@ -196,10 +201,8 @@ jobs:
           if-no-files-found: error
 
   build-windows:
-    if: ${{ false }}
     name: Build - windows-2025 - ${{ matrix.target }}
     runs-on: windows-2025
-    timeout-minutes: 90
     permissions:
       contents: read
     defaults:
@@ -249,7 +252,6 @@ jobs:
           if-no-files-found: error
 
   publish-release:
-    if: ${{ false }}
     needs:
       - build-unix
       - build-windows
@@ -363,7 +365,6 @@ jobs:
             --clobber
 
   publish-npm:
-    if: ${{ false }}
     needs:
       - build-unix
       - build-windows
