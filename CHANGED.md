@@ -13,7 +13,8 @@ This file captures the fork-specific behavior reapplied on top of the current up
 
 ## TUI status header and polling
 
-- Added a status header above the composer in the app-server-backed `codex-rs/tui` surface. It shows model + reasoning effort, current directory, git branch/ahead/behind/changes, and rate-limit remaining/reset time.
+- Added a status header above the composer in the app-server-backed `codex-rs/tui` surface. Segment order is fixed as model + reasoning effort, current directory, git branch/ahead/behind/changes, rate-limit remaining/reset time, then account identity.
+- Status header account identity is the last segment without an icon: ChatGPT accounts render as `user@example.com(Pro)` and API-key auth renders as `API key`.
 - Git status is collected in the background (15s interval, 2s timeout) and rendered when available.
 - The directory segment represents the session/thread `cwd`, not a one-off tool `workdir`.
 - When the session `cwd` changes (for example after switching into a new worktree), the git-status poller now rebinds to that new `cwd`, clears stale git state, and ignores late results from the previous `cwd`.

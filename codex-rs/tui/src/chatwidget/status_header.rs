@@ -24,7 +24,9 @@ use unicode_width::UnicodeWidthStr;
 
 use crate::git_status::GitStatusSummary;
 use crate::status::RateLimitSnapshotDisplay;
+use crate::status::StatusAccountDisplay;
 use crate::ui_consts::LIVE_PREFIX_COLS;
+use codex_protocol::account::PlanType;
 use codex_protocol::openai_models::ReasoningEffort as ReasoningEffortConfig;
 
 use super::*;
@@ -60,6 +62,9 @@ fn bottom_section_renderable(widget: &ChatWidget) -> ColumnRenderable<'_> {
     let status_header = StatusHeaderBar::new(
         widget.model_display_name(),
         widget.effective_reasoning_effort(),
+        widget.status_account_display(),
+        widget.current_plan_type(),
+        widget.has_chatgpt_account(),
         Some(widget.status_line_cwd()),
         widget.git_status.clone(),
         widget
@@ -84,6 +89,7 @@ fn bottom_section_renderable(widget: &ChatWidget) -> ColumnRenderable<'_> {
 
 struct StatusHeaderBar {
     model_name: Option<String>,
+    account_label: Option<String>,
     directories: Vec<PathBuf>,
     git_status: Option<GitStatusSummary>,
     rate_limit_summary: Option<String>,
@@ -105,6 +111,9 @@ impl StatusHeaderBar {
     fn new(
         model_name: &str,
         reasoning_effort: Option<ReasoningEffortConfig>,
+        account_display: Option<&StatusAccountDisplay>,
+        plan_type: Option<PlanType>,
+        has_chatgpt_account: bool,
         command_cwd: Option<&Path>,
         git_status: Option<GitStatusSummary>,
         rate_limit_snapshot: Option<&RateLimitSnapshotDisplay>,
@@ -128,6 +137,11 @@ impl StatusHeaderBar {
         });
         Self {
             model_name,
+            account_label: status_header_account_label(
+                account_display,
+                plan_type,
+                has_chatgpt_account,
+            ),
             directories,
             git_status,
             rate_limit_summary,
@@ -136,6 +150,7 @@ impl StatusHeaderBar {
 
     fn has_content(&self) -> bool {
         self.model_name.is_some()
+            || self.account_label.is_some()
             || !self.directories.is_empty()
             || self.git_status.is_some()
             || self.rate_limit_summary.is_some()
@@ -211,6 +226,10 @@ impl StatusHeaderBar {
             push_segment(vec!["\u{f464} ".cyan(), Span::from(summary.clone()).cyan()]);
         }
 
+        if let Some(account_label) = self.account_label.as_ref() {
+            push_segment(vec![Span::from(account_label.clone()).cyan()]);
+        }
+
         Some(Line::from(spans))
     }
 
@@ -219,6 +238,11 @@ impl StatusHeaderBar {
             .model_name
             .as_ref()
             .map(|model_name| UnicodeWidthStr::width("\u{ee9c} ") + model_name.width())
+            .unwrap_or(0);
+        let account_width = self
+            .account_label
+            .as_ref()
+            .map(|account_label| account_label.width())
             .unwrap_or(0);
         let directory_width = if self.directories.is_empty() {
             0
@@ -256,12 +280,18 @@ impl StatusHeaderBar {
             .map(|summary| UnicodeWidthStr::width("\u{f464} ") + summary.width())
             .unwrap_or(0);
         let segment_count = usize::from(self.model_name.is_some())
+            + usize::from(self.account_label.is_some())
             + usize::from(!self.directories.is_empty())
             + usize::from(self.git_status.is_some())
             + usize::from(self.rate_limit_summary.is_some());
         let separator_width = UnicodeWidthStr::width(" │ ") * segment_count.saturating_sub(1);
 
-        model_width + directory_width + git_width + rate_limit_width + separator_width
+        model_width
+            + account_width
+            + directory_width
+            + git_width
+            + rate_limit_width
+            + separator_width
     }
 }
 
@@ -350,6 +380,34 @@ fn format_model_label(model_name: &str, reasoning_effort: Option<ReasoningEffort
         model_name.to_string()
     } else {
         format!("{model_name} {effort_label}")
+    }
+}
+
+fn status_header_account_label(
+    account_display: Option<&StatusAccountDisplay>,
+    plan_type: Option<PlanType>,
+    has_chatgpt_account: bool,
+) -> Option<String> {
+    if !has_chatgpt_account {
+        return Some("API key".to_string());
+    }
+
+    let (email, display_plan) = match account_display {
+        Some(StatusAccountDisplay::ChatGpt { email, plan }) => {
+            (email.as_deref().unwrap_or("unknown email"), plan.as_deref())
+        }
+        Some(StatusAccountDisplay::ApiKey) => return Some("API key".to_string()),
+        None => return None,
+    };
+
+    let plan = match display_plan {
+        Some(plan) => Some(plan.to_string()),
+        None => plan_type.map(crate::status::plan_type_display_name),
+    };
+
+    match plan {
+        Some(plan) => Some(format!("{email}({plan})")),
+        None => Some(email.to_string()),
     }
 }
 

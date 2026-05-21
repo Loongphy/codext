@@ -46,6 +46,25 @@ For screenshots of the TUI account-change notice after `auth.json` changes:
 - Cleanup: remove `AUTH_CHANGE_SCREENSHOT_ENV_VAR`, `auth_change_screenshot_mock`, and the
   startup injection in `tui/src/app.rs`.
 
+## Status Header Mockup
+
+For screenshots or demos of the TUI status header:
+
+- Gate the mockup with `CODEXT_STATUS_HEADER_SCREENSHOT`.
+- Start the TUI with the env var enabled; no backend rate-limit response or `auth.json` edit is
+  required.
+- When enabled, seed deterministic account state for `ddl@loongphy.com(Pro)`.
+- Inject a `codex` rate-limit snapshot with 95% remaining on the primary window and a near reset
+  time so the header shows the rate-limit segment immediately.
+- Re-apply the mock after app-server account and rate-limit notifications; those events can
+  otherwise overwrite the mocked email or Pro plan after startup.
+- Header account rendering should prefer the mocked `StatusAccountDisplay` plan label over any
+  refreshed internal plan type so `ddl@loongphy.com(Pro)` stays stable.
+- Let the normal header renderer supply the real model, cwd, and git segments so screenshots stay
+  representative of the current checkout, with account rendered as the final header segment.
+- Cleanup: remove `STATUS_HEADER_SCREENSHOT_ENV_VAR`, `status_header_screenshot_mock`,
+  `apply_status_header_screenshot_mock`, and the startup injection in `tui/src/app.rs`.
+
 ## Cleanup
 
 - Revert any mockup-only imports, fields, helpers, constructor wiring, and test-helper plumbing from

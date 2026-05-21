@@ -16,6 +16,8 @@ Apply these conventions every time the status header bar is implemented or modif
 
 ## Required color mapping
 
+- Segment order is fixed: model, directory, git, rate limit, account. Omit unavailable segments
+  without reordering the remaining visible segments.
 - Model segment: icon + label in cyan.
 - Directory segment: icon + path in yellow.
 - Git segment:
@@ -26,6 +28,9 @@ Apply these conventions every time the status header bar is implemented or modif
   - untracked count in red
 - Rate limit segment: icon + summary in cyan.
   - Summary format: `95% 23:19`
+- Account segment: label only in cyan, always last when present.
+  - ChatGPT account format: `user@example.com(Pro)`
+  - API-key auth format: `API key`
 - Segment separator: " │ " in dim.
 
 ## Reference snippet (behavioral template, adapt to local architecture)
@@ -77,6 +82,10 @@ if let Some(git_status) = self.git_status.as_ref() {
 
 if let Some(summary) = self.rate_limit_summary.as_ref() {
     push_segment(vec!["\u{f464} ".cyan(), Span::from(summary.clone()).cyan()]);
+}
+
+if let Some(account_label) = self.account_label.as_ref() {
+    push_segment(vec![Span::from(account_label.clone()).cyan()]);
 }
 ```
 
