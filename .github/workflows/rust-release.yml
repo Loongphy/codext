@@ -356,7 +356,6 @@ jobs:
               --repo "${GITHUB_REPOSITORY}" \
               --title "codext ${RELEASE_NAME}" \
               --notes-file "${RELEASE_NOTES}" \
-              --target "${GITHUB_SHA}" \
               --latest
           fi
 
