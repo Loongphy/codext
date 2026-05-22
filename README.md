@@ -4,7 +4,6 @@ An opinionated Codex CLI. This is strictly a personal hobby project, forked from
 
 ![Preview](https://github.com/user-attachments/assets/cd4bf293-85c4-4e3f-83d3-6c0dd45c9dc6)
 
-
 ## Quick Start
 
 Choose one of these two ways:
@@ -30,11 +29,15 @@ cargo run --bin codex
 
 ### TUI: Status Header
 
+> [!TIP]
+> The icons requires **[Nerd Fonts](https://www.nerdfonts.com/)** installed and configured in your terminal.
+
 The TUI header provides a compact overview of the active session:
-- **Context**: Displays the active model, effort level, and current working directory (`cwd`).
-- **Git Status**: Background-polled summary of the repository state for the session `cwd`.
-- **Rate Limits**: ChatGPT usage-limit snapshots that refresh while the UI is idle.
-- **Account Info**: Email + Plan, API Key
+
+* **Context**: Displays the active model, effort level, and current working directory (`cwd`).
+* **Git Status**: Background-polled summary of the repository state for the session `cwd`.
+* **Rate Limits**: ChatGPT usage-limit snapshots that refresh while the UI is idle.
+* **Account Info**: Email + Plan, API Key
 
 ![Status Header Preview](https://github.com/user-attachments/assets/23350e86-2597-48ea-82a6-378f8f01ac74)
 

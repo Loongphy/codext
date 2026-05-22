@@ -22,6 +22,7 @@ jobs:
         working-directory: codex-rs
     env:
       CARGO_PROFILE_RELEASE_LTO: thin
+      CARGO_NET_GIT_FETCH_WITH_CLI: true
       FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
     strategy:
       fail-fast: false
@@ -162,33 +163,24 @@ jobs:
           echo "CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_RUSTFLAGS=" >> "$GITHUB_ENV"
           echo "CARGO_TARGET_AARCH64_UNKNOWN_LINUX_MUSL_RUSTFLAGS=" >> "$GITHUB_ENV"
 
-      - name: Configure musl rusty_v8 artifact overrides
+          sanitize_flags() {
+            local input="$1"
+            input="${input//-fsanitize=undefined/}"
+            input="${input//-fno-sanitize-recover=undefined/}"
+            input="${input//-fno-sanitize-trap=undefined/}"
+            echo "$input"
+          }
+
+          cflags="$(sanitize_flags "${CFLAGS-}")"
+          cxxflags="$(sanitize_flags "${CXXFLAGS-}")"
+          echo "CFLAGS=${cflags}" >> "$GITHUB_ENV"
+          echo "CXXFLAGS=${cxxflags}" >> "$GITHUB_ENV"
+
+      - name: Configure musl rusty_v8 artifact overrides and verify checksums
         if: ${{ contains(matrix.target, 'unknown-linux-musl') }}
-        env:
-          TARGET: ${{ matrix.target }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          version="$(python3 "${GITHUB_WORKSPACE}/.github/scripts/rusty_v8_bazel.py" resolved-v8-crate-version)"
-          release_tag="rusty-v8-v${version}"
-          base_url="https://github.com/openai/codex/releases/download/${release_tag}"
-          binding_dir="${RUNNER_TEMP}/rusty_v8"
-          archive_path="${binding_dir}/librusty_v8_release_${TARGET}.a.gz"
-          binding_path="${binding_dir}/src_binding_release_${TARGET}.rs"
-          checksums_path="${binding_dir}/rusty_v8_release_${TARGET}.sha256"
-          checksums_source="${GITHUB_WORKSPACE}/third_party/v8/rusty_v8_${version//./_}.sha256"
-          mkdir -p "${binding_dir}"
-          curl -fsSL "${base_url}/librusty_v8_release_${TARGET}.a.gz" -o "${archive_path}"
-          curl -fsSL "${base_url}/src_binding_release_${TARGET}.rs" -o "${binding_path}"
-          grep -E "  (librusty_v8_release_${TARGET}[.]a[.]gz|src_binding_release_${TARGET}[.]rs)$" \
-            "${checksums_source}" > "${checksums_path}"
-          if [[ "$(wc -l < "${checksums_path}")" -ne 2 ]]; then
-            echo "Expected exactly two checksums for ${TARGET} in ${checksums_source}" >&2
-            exit 1
-          fi
-          (cd "${binding_dir}" && sha256sum -c "${checksums_path}")
-          echo "RUSTY_V8_ARCHIVE=${archive_path}" >> "$GITHUB_ENV"
-          echo "RUSTY_V8_SRC_BINDING_PATH=${binding_path}" >> "$GITHUB_ENV"
+        uses: ./.github/actions/setup-rusty-v8-musl
+        with:
+          target: ${{ matrix.target }}
 
       - name: Cargo build
         shell: bash
@@ -478,10 +470,25 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          shopt -s nullglob
-          tarballs=(dist/npm/*-"${VERSION}".tgz)
+          platform_tarballs=(
+            "dist/npm/codex-npm-linux-x64-${VERSION}.tgz"
+            "dist/npm/codex-npm-linux-arm64-${VERSION}.tgz"
+            "dist/npm/codex-npm-darwin-x64-${VERSION}.tgz"
+            "dist/npm/codex-npm-darwin-arm64-${VERSION}.tgz"
+            "dist/npm/codex-npm-win32-x64-${VERSION}.tgz"
+          )
+          root_tarball="dist/npm/codex-npm-${VERSION}.tgz"
+          tarballs=("${platform_tarballs[@]}" "${root_tarball}")
+
+          for required_tarball in "${tarballs[@]}"; do
+            if [[ ! -f "${required_tarball}" ]]; then
+              echo "Missing npm tarball: ${required_tarball}"
+              exit 1
+            fi
+          done
+
           if [[ ${#tarballs[@]} -eq 0 ]]; then
-            echo "No npm tarballs found in dist/npm for version ${VERSION}"
+            echo "No npm tarballs configured for version ${VERSION}"
             exit 1
           fi
 

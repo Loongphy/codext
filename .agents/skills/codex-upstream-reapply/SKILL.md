@@ -119,6 +119,21 @@ bash .agents/skills/codex-upstream-reapply/scripts/start_from_tag.sh \
 
 如果分支上包含 codext npm / release 相关改动，必须先看 `references/npm-release.md`。这份文档明确要求：在 `NEW_BRANCH` 上用 `OLD_BRANCH` 的 `rust-release.yml` 覆盖当前 tag 分支内容，删除其他 workflow，并直接复制 `.github/scripts/install-musl-build-tools.sh`、`.github/scripts/rusty_v8_bazel.py`、`codex-cli/package.json`、`codex-cli/bin/codex.js`、`codex-cli/bin/rg`、`codex-cli/scripts/build_npm_package.py`、`codex-cli/scripts/install_native_deps.py`；这些是必做项，不是建议。只有这些动作完成后，才允许评估上游 / 新 tag 额外新增或改动的 CI 是否要合并或忽略。
 
+执行完 codext npm / release 必做项后，必须专门对比当前 `TAG` 或已 fetch 的 `upstream/main` 中 `.github/workflows/rust-release.yml` 的 release-build 相关变更，并把会影响“构建二进制、下载/校验 release 依赖、上传 artifacts、生成/发布 npm tarball”的上游修复同步适配到 codext workflow。不要为了保持 fork workflow 简洁而跳过这个检查。特别留意这些失败模式：
+
+- musl `rusty_v8` artifact 下载和 checksum 校验逻辑是否已经在 upstream 改动，例如从本地总清单 `grep` 改为下载 per-target `.sha256`。
+- Cargo/git 网络拉取相关修复，例如 `CARGO_NET_GIT_FETCH_WITH_CLI`，避免 macOS runner 拉取 git dependency 或 submodule 时失败。
+- musl runner 环境清理，例如 sanitizer `RUSTFLAGS`、`CFLAGS`、`CXXFLAGS` 处理。
+- npm 发布顺序和必需 tarball 检查，平台包必须先于根包发布，避免根包发布后引用尚未存在的平台包版本。
+
+推荐核对命令：
+
+```bash
+git diff --name-status OLD_BASE_TAG..TAG -- .github/workflows/rust-release.yml .github/actions/setup-rusty-v8-musl .github/scripts
+git diff TAG -- .github/workflows/rust-release.yml
+git show TAG:.github/workflows/rust-release.yml
+```
+
 如果这套 codext npm / release 规则生效，所有用户可见文案、提示、tooltips、README/技能文档里凡是引用安装后命令名的地方，也必须同步使用 `codext`。例如恢复会话提示应写成 `codext resume <session>`，不要继续保留 `codex resume ...` 这类上游命令名。
 
 如果你没有使用 `start_from_tag.sh`，而是手动创建了 `NEW_BRANCH`，则紧接着必须更新 `NEW_BRANCH` 根目录 `AGENTS.md`，补充一段当前任务说明，至少包含这些信息：
