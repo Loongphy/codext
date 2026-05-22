@@ -234,10 +234,20 @@ impl ChatWidget {
                 self.rate_limit_switch_prompt = RateLimitSwitchPromptState::Pending;
             }
 
+            let quota_available =
+                is_codex_limit && rate_limit_snapshot_has_available_quota(&snapshot);
             let display =
                 rate_limit_snapshot_display_for_limit(&snapshot, limit_label, Local::now());
             self.rate_limit_snapshots_by_limit_id
                 .insert(limit_id, display);
+
+            if quota_available && self.queue_autosend_blocked_by_rate_limit {
+                self.queue_autosend_blocked_by_rate_limit = false;
+                if self.has_queued_follow_up_messages() {
+                    self.clear_pending_usage_limit_resume_turn();
+                }
+                self.maybe_send_next_queued_input();
+            }
 
             if !warnings.is_empty() {
                 for warning in warnings {
@@ -252,11 +262,67 @@ impl ChatWidget {
         self.refresh_status_line();
     }
 
-    pub(super) fn stop_rate_limit_poller(&mut self) {}
+    pub(super) fn stop_rate_limit_poller(&mut self) {
+        if let Some(handle) = self.rate_limit_poller.take() {
+            handle.abort();
+        }
+    }
+
+    pub(crate) fn stop_git_status_poller(&mut self) {
+        if let Some(handle) = self.git_status_poller.take() {
+            handle.abort();
+        }
+    }
 
     #[cfg_attr(not(test), allow(dead_code))]
     pub(super) fn prefetch_rate_limits(&mut self) {
         self.stop_rate_limit_poller();
+        if !self.should_prefetch_rate_limits() {
+            self.on_rate_limit_snapshot(None);
+            return;
+        }
+        self.app_event_tx.send(AppEvent::RefreshRateLimits {
+            origin: RateLimitRefreshOrigin::StartupPrefetch,
+        });
+        self.start_rate_limit_poller();
+    }
+
+    fn start_rate_limit_poller(&mut self) {
+        self.stop_rate_limit_poller();
+        let app_event_tx = self.app_event_tx.clone();
+        self.rate_limit_poller = Some(tokio::spawn(async move {
+            let mut interval =
+                tokio::time::interval(Duration::from_secs(RATE_LIMIT_REFRESH_INTERVAL_SECS));
+            loop {
+                interval.tick().await;
+                app_event_tx.send(AppEvent::RefreshRateLimits {
+                    origin: RateLimitRefreshOrigin::BackgroundPoll,
+                });
+            }
+        }));
+    }
+
+    pub(super) fn start_git_status_poller(&mut self) {
+        self.stop_git_status_poller();
+        let cwd = self.config.cwd.clone();
+        let app_event_tx = self.app_event_tx.clone();
+        self.git_status_poller = Some(tokio::spawn(async move {
+            let poll = || {
+                let cwd = cwd.clone();
+                let app_event_tx = app_event_tx.clone();
+                async move {
+                    let summary = collect_git_status_summary(cwd.as_path()).await;
+                    app_event_tx.send(AppEvent::GitStatusFetched { cwd, summary });
+                }
+            };
+            poll().await;
+            let mut interval =
+                tokio::time::interval(Duration::from_secs(GIT_STATUS_POLL_INTERVAL_SECS));
+            loop {
+                interval.tick().await;
+                poll().await;
+            }
+        }));
     }
 
     #[cfg_attr(not(test), allow(dead_code))]
@@ -471,6 +537,98 @@ impl ChatWidget {
         self.config.notices.hide_rate_limit_model_nudge = Some(hidden);
         if hidden {
             self.rate_limit_switch_prompt = RateLimitSwitchPromptState::Idle;
+        }
+    }
+
+    pub(crate) fn on_git_status_update(
+        &mut self,
+        cwd: AbsolutePathBuf,
+        summary: Option<GitStatusSummary>,
+    ) {
+        if cwd.as_path() != self.status_line_cwd() {
+            return;
+        }
+        if self.git_status == summary {
+            return;
+        }
+        self.git_status = summary;
+        self.refresh_status_line();
+        self.request_redraw();
+    }
+
+    pub(crate) fn handle_auth_identity_changed(&mut self) {
+        self.rate_limit_snapshots_by_limit_id.clear();
+        self.codex_rate_limit_reached_type = None;
+        self.queue_autosend_blocked_by_rate_limit = false;
+        self.rate_limit_warnings = RateLimitWarningState::default();
+        self.rate_limit_switch_prompt = RateLimitSwitchPromptState::default();
+        self.add_credits_nudge_email_in_flight = None;
+        self.git_status = None;
+        self.refresh_status_line();
+        self.request_redraw();
+    }
+
+    pub(crate) fn defer_auth_reload_until_idle(&mut self, attempt: u8) {
+        self.pending_auth_reload_attempt = Some(
+            self.pending_auth_reload_attempt
+                .map(|existing| existing.min(attempt))
+                .unwrap_or(attempt),
+        );
+    }
+
+    pub(crate) fn on_auth_reload_completed(&mut self, identity_changed: bool) {
+        self.pending_auth_reload_attempt = None;
+        if identity_changed && self.pending_usage_limit_resume_turn.is_some() {
+            self.usage_limit_resume_waiting_for_auth_reload = false;
+        }
+        self.maybe_send_next_queued_input();
+    }
+
+    pub(crate) fn usage_limit_resume_prompt(&self) -> Option<String> {
+        match self.config.tui_usage_limit_resume_prompt.as_deref() {
+            Some("") => None,
+            Some(prompt) => Some(prompt.to_string()),
+            None => Some(DEFAULT_USAGE_LIMIT_RESUME_PROMPT.to_string()),
+        }
+    }
+
+    pub(crate) fn on_usage_limit_error(&mut self, message: String) {
+        if self.pending_usage_limit_resume_turn.is_none()
+            && let Some(prompt) = self.usage_limit_resume_prompt()
+        {
+            self.pending_usage_limit_resume_turn = Some(UserMessage::from(prompt));
+            self.usage_limit_resume_waiting_for_auth_reload = true;
+        }
+        self.on_error(message);
+    }
+
+    pub(crate) fn clear_pending_usage_limit_resume_turn(&mut self) {
+        if self.pending_usage_limit_resume_turn.is_none()
+            && !self.usage_limit_resume_waiting_for_auth_reload
+        {
+            return;
+        }
+        self.pending_usage_limit_resume_turn = None;
+        self.usage_limit_resume_waiting_for_auth_reload = false;
+        self.refresh_pending_input_preview();
+    }
+
+    pub(crate) fn is_task_running(&self) -> bool {
+        self.bottom_pane.is_task_running()
+    }
+
+    pub(crate) fn maybe_dispatch_deferred_auth_reload(&mut self) {
+        if self.bottom_pane.is_task_running() {
+            return;
+        }
+        let Some(attempt) = self.pending_auth_reload_attempt.take() else {
+            return;
+        };
+        if attempt <= 1 {
+            self.app_event_tx.send(AppEvent::AuthFileChanged);
+        } else {
+            self.app_event_tx
+                .send(AppEvent::AuthFileChangedRetry { attempt });
         }
     }
 }

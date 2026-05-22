@@ -21,6 +21,7 @@ impl ChatWidget {
         let ThreadItem::CommandExecution {
             id,
             command,
+            cwd,
             process_id,
             source,
             command_actions,
@@ -29,6 +30,8 @@ impl ChatWidget {
         else {
             return;
         };
+        self.latest_command_cwd = Some(cwd.to_path_buf());
+        self.refresh_status_surfaces();
         let (_command, parsed_cmd) = command_execution_command_and_parsed(command, command_actions);
         self.flush_answer_stream_with_separator();
         if is_unified_exec_source(*source) {
@@ -243,6 +246,7 @@ impl ChatWidget {
         let ThreadItem::CommandExecution {
             id,
             command,
+            cwd,
             source,
             command_actions,
             ..
@@ -250,6 +254,8 @@ impl ChatWidget {
         else {
             return;
         };
+        self.latest_command_cwd = Some(cwd.to_path_buf());
+        self.refresh_status_surfaces();
         let (command, parsed_cmd) =
             command_execution_command_and_parsed(&command, &command_actions);
         // Ensure the status indicator is visible while the command runs.

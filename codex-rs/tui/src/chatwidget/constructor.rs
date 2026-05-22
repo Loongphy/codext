@@ -121,6 +121,11 @@ impl ChatWidget {
             runtime_model_provider_base_url,
             token_info: None,
             rate_limit_snapshots_by_limit_id: BTreeMap::new(),
+            rate_limit_poller: None,
+            git_status: None,
+            git_status_poller: None,
+            latest_command_cwd: None,
+            editing_root: None,
             refreshing_status_outputs: Vec::new(),
             next_status_refresh_request_id: 0,
             plan_type: initial_plan_type,
@@ -219,9 +224,14 @@ impl ChatWidget {
             realtime_conversation: RealtimeConversationUiState::default(),
             last_rendered_user_message_display: None,
             last_non_retry_error: None,
+            queue_autosend_blocked_by_rate_limit: false,
+            pending_auth_reload_attempt: None,
+            pending_usage_limit_resume_turn: None,
+            usage_limit_resume_waiting_for_auth_reload: false,
         };
 
         widget.prefetch_rate_limits();
+        widget.start_git_status_poller();
         if let Some(keymap) = runtime_keymap {
             widget.bottom_pane.set_keymap_bindings(&keymap);
         }
