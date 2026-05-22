@@ -676,12 +676,15 @@ impl AuthIdentity {
         if !self.has_chatgpt_account {
             return "API key".to_string();
         }
-        let email = self.email.as_deref().unwrap_or("unknown email");
-        let plan = self
-            .plan_type
-            .map(crate::status::plan_type_display_name)
-            .unwrap_or_else(|| "unknown plan".to_string());
-        format!("{email} ({plan})")
+        match (
+            self.email.as_deref(),
+            self.plan_type.map(crate::status::plan_type_display_name),
+        ) {
+            (Some(email), Some(plan)) => format!("{email} ({plan})"),
+            (Some(email), None) => email.to_string(),
+            (None, Some(plan)) => plan,
+            (None, None) => "ChatGPT".to_string(),
+        }
     }
 }
 

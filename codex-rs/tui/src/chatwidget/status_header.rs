@@ -393,9 +393,7 @@ fn status_header_account_label(
     }
 
     let (email, display_plan) = match account_display {
-        Some(StatusAccountDisplay::ChatGpt { email, plan }) => {
-            (email.as_deref().unwrap_or("unknown email"), plan.as_deref())
-        }
+        Some(StatusAccountDisplay::ChatGpt { email, plan }) => (email.as_deref(), plan.as_deref()),
         Some(StatusAccountDisplay::ApiKey) => return Some("API key".to_string()),
         None => return None,
     };
@@ -405,9 +403,11 @@ fn status_header_account_label(
         None => plan_type.map(crate::status::plan_type_display_name),
     };
 
-    match plan {
-        Some(plan) => Some(format!("{email}({plan})")),
-        None => Some(email.to_string()),
+    match (email, plan) {
+        (Some(email), Some(plan)) => Some(format!("{email}({plan})")),
+        (Some(email), None) => Some(email.to_string()),
+        (None, Some(plan)) => Some(plan),
+        (None, None) => None,
     }
 }
 

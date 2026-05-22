@@ -17,6 +17,7 @@ use codex_app_server_client::AppServerRequestHandle;
 use codex_app_server_client::TypedRequestError;
 use codex_app_server_protocol::Account;
 use codex_app_server_protocol::AskForApproval;
+#[cfg(test)]
 use codex_app_server_protocol::AuthMode;
 use codex_app_server_protocol::ClientRequest;
 use codex_app_server_protocol::ConfigBatchWriteParams;
@@ -1153,6 +1154,7 @@ fn thread_realtime_start_params(
         .wrap_err("mapping TUI realtime start params to app-server params")
 }
 
+#[cfg(test)]
 pub(crate) fn status_account_display_from_auth_mode(
     auth_mode: Option<AuthMode>,
     plan_type: Option<codex_protocol::account::PlanType>,
