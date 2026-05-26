@@ -90,10 +90,6 @@ You can configure this behavior using `[tui].usage_limit_resume_prompt`:
   usage_limit_resume_prompt = ""
   ```
 
-### AGENTS.md auto reload
-
-AGENTS.md and project-doc instructions are refreshed on each new user turn, and Codex shows an explicit warning when a refresh is applied.
-
 ## Project Goals
 
 We will never merge code from the upstream repo; instead, we re-implement our changes on top of the latest upstream code.
