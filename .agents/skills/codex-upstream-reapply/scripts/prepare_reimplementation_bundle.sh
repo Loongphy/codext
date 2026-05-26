@@ -68,6 +68,12 @@ require_ref() {
   git rev-parse --verify "${ref}^{commit}" >/dev/null 2>&1 || die "Ref not found: ${ref}"
 }
 
+path_exists_in_ref() {
+  local ref="$1"
+  local path="$2"
+  git cat-file -e "${ref}:${path}" 2>/dev/null
+}
+
 ref_commit() {
   git rev-parse "${1}^{commit}"
 }
@@ -84,16 +90,101 @@ default_reapply_action_for_path() {
   local path="$1"
 
   case "${path}" in
-    AGENTS.md|README.md|CHANGED.md|.agents/skills|.agents/skills/*)
+    AGENTS.md)
+      printf '%s\n' "reference only; do not auto carry-over by default"
+      ;;
+    README.md|CHANGED.md|.agents/skills|.agents/skills/*)
       printf '%s\n' "auto carry-over by start_from_tag.sh"
       ;;
-    .github/workflows/rust-release.yml|.github/scripts/install-musl-build-tools.sh|.github/scripts/rusty_v8_bazel.py|codex-cli/package.json|codex-cli/bin/codex.js|codex-cli/bin/rg|codex-cli/scripts/build_npm_package.py|codex-cli/scripts/install_native_deps.py)
+    .github/workflows/rust-release.yml|.github/actions/setup-rusty-v8-musl/action.yml|.github/scripts/install-musl-build-tools.sh|.github/scripts/rusty_v8_bazel.py|codex-cli/package.json|codex-cli/bin/codex.js|codex-cli/bin/rg|codex-cli/scripts/build_npm_package.py|codex-cli/scripts/install_native_deps.py)
       printf '%s\n' "auto carry-over when npm/release reapply rules are enabled"
       ;;
     *)
       printf '%s\n' "manual re-implementation required"
       ;;
   esac
+}
+
+readonly NPM_RELEASE_SKILL_REF=".agents/skills/codex-upstream-reapply/references/npm-release.md"
+
+readonly RELEASE_IMPACT_PATHS=(
+  ".github/workflows/rust-release.yml"
+  ".github/actions/setup-rusty-v8-musl/action.yml"
+  ".github/scripts/install-musl-build-tools.sh"
+  ".github/scripts/rusty_v8_bazel.py"
+  "codex-cli/package.json"
+  "codex-cli/bin/codex.js"
+  "codex-cli/bin/rg"
+  "codex-cli/scripts/build_npm_package.py"
+  "codex-cli/scripts/install_native_deps.py"
+)
+
+has_npm_release_reapply() {
+  local old_branch="$1"
+  path_exists_in_ref "${old_branch}" "${NPM_RELEASE_SKILL_REF}"
+}
+
+write_upstream_release_impact_review() {
+  local old_branch="$1"
+  local base_commit="$2"
+  local base_ref="$3"
+  local out_file="$4"
+  local diff_output=""
+  local path=""
+
+  diff_output="$(git diff --name-status "${base_commit}..${base_ref}" -- "${RELEASE_IMPACT_PATHS[@]}")"
+
+  {
+    cat <<EOF
+# Upstream Release Impact Review
+
+Generated because \`${NPM_RELEASE_SKILL_REF}\` exists on \`${old_branch}\`.
+Review this after the mandatory release carry-over.
+
+- base_commit: \`${base_commit}\`
+- selected_ref: \`${base_ref}\`
+
+## Release invariants
+
+- Supported platforms still produce the release binaries required by the branch
+- The release workflow can fetch, verify, and package its build dependencies on those platforms
+- Platform npm packages are published before the root package that depends on them
+- Package identity stays aligned to \`codext\` unless upstream forces a rename
+- Launcher and install scripts still resolve the intended platform package and native binary
+
+## Critical paths monitored
+
+EOF
+
+    for path in "${RELEASE_IMPACT_PATHS[@]}"; do
+      printf -- '- `%s`\n' "${path}"
+    done
+
+    cat <<'EOF'
+
+## Changed upstream paths
+
+EOF
+
+    if [[ -n "${diff_output}" ]]; then
+      printf '```text\n%s\n```\n' "${diff_output}"
+    else
+      printf 'No release-critical upstream path changes detected.\n'
+    fi
+
+    cat <<'EOF'
+
+## Review checklist
+
+- Does any change alter the platform matrix, artifact names, or publish order?
+- Does any change alter musl or V8 setup, dependency download, or checksum validation?
+- Does any change alter package build, launcher, or native dependency install behavior?
+- If no invariant is threatened, keep the old release flow unchanged.
+- If an invariant is threatened, adapt the minimum required upstream behavior and update the skill docs or scripts in the same wave.
+EOF
+  } > "${out_file}"
+
+  echo "[OK] Wrote upstream release impact review: ${out_file}"
 }
 
 OLD_BRANCH=""
@@ -260,6 +351,14 @@ git diff --name-status "${base_commit}..${OLD_BRANCH}" > "${OUT_DIR}/changed-fil
 git diff --stat "${base_commit}..${OLD_BRANCH}" > "${OUT_DIR}/diffstat.txt"
 git diff "${base_commit}..${OLD_BRANCH}" > "${OUT_DIR}/diff.patch"
 git log --reverse --oneline "${base_commit}..${OLD_BRANCH}" > "${OUT_DIR}/commits.txt"
+
+if has_npm_release_reapply "${OLD_BRANCH}"; then
+  write_upstream_release_impact_review \
+    "${OLD_BRANCH}" \
+    "${base_commit}" \
+    "${BASE_REF}" \
+    "${OUT_DIR}/upstream-release-impact.md"
+fi
 
 {
   cat <<'EOF'
