@@ -306,7 +306,8 @@ fn push_directory_context(directories: &mut Vec<PathBuf>, path: &Path) {
 }
 
 fn compact_directory_display(directory: &Path, available_width: usize) -> String {
-    let full_directory = crate::status::format_directory_display(directory, /*max_width*/ None);
+    let full_directory =
+        crate::status::format_directory_display(directory, /*max_width*/ None);
     if UnicodeWidthStr::width(full_directory.as_str()) <= available_width {
         return full_directory;
     }
@@ -412,5 +413,7 @@ fn status_header_account_label(
 }
 
 fn compact_reset_time(resets_at: &str) -> &str {
-    resets_at.split_once(' ').map_or(resets_at, |(time, _)| time)
+    resets_at
+        .split_once(' ')
+        .map_or(resets_at, |(time, _)| time)
 }

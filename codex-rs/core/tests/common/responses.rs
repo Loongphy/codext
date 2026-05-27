@@ -1639,3 +1639,125 @@ fn validate_request_body_invariants(request: &wiremock::Request) {
         );
     }
 }
+
+// ---------------------------------------------------------------------------
+// Usage Limit / Rate Limit mock response constructors
+// ---------------------------------------------------------------------------
+
+/// 429 usage_limit_reached with rate limit headers and plan type.
+pub fn usage_limit_response(plan_type: &str, resets_at: i64) -> ResponseTemplate {
+    ResponseTemplate::new(429)
+        .insert_header("x-codex-primary-used-percent", "100.0")
+        .insert_header("x-codex-primary-window-minutes", "1440")
+        .insert_header("x-codex-primary-resets-at", resets_at.to_string())
+        .insert_header("x-codex-secondary-used-percent", "87.5")
+        .insert_header("x-codex-secondary-window-minutes", "10080")
+        .set_body_json(serde_json::json!({
+            "error": {
+                "type": "usage_limit_reached",
+                "message": "limit reached",
+                "resets_at": resets_at,
+                "plan_type": plan_type
+            }
+        }))
+}
+
+/// 429 insufficient_quota as an SSE response.failed event.
+pub fn quota_exceeded_sse() -> String {
+    sse(vec![
+        ev_response_created("resp-1"),
+        serde_json::json!({
+            "type": "response.failed",
+            "response": {
+                "id": "resp-1",
+                "error": {
+                    "code": "insufficient_quota",
+                    "message": "You exceeded your current quota, please check your plan and billing details."
+                }
+            }
+        }),
+    ])
+}
+
+/// 429 server_overloaded with retry-after header.
+pub fn server_overloaded_response() -> ResponseTemplate {
+    ResponseTemplate::new(429)
+        .insert_header("retry-after", "30")
+        .set_body_json(serde_json::json!({
+            "error": {
+                "type": "server_error",
+                "code": "overloaded",
+                "message": "The engine is currently overloaded, please try again later."
+            }
+        }))
+}
+
+/// 200 OK with rate limit headers indicating the specified usage percentage.
+pub fn response_with_rate_limits(used_pct: f64, window_min: i64) -> ResponseTemplate {
+    let sse_body = sse(vec![ev_completed("resp-rl")]);
+    ResponseTemplate::new(200)
+        .insert_header("content-type", "text/event-stream")
+        .insert_header("x-codex-primary-used-percent", format!("{used_pct:.1}"))
+        .insert_header("x-codex-primary-window-minutes", window_min.to_string())
+        .insert_header("x-codex-primary-resets-at", "1704067242")
+        .insert_header("x-codex-secondary-used-percent", "50.0")
+        .insert_header("x-codex-secondary-window-minutes", "10080")
+        .set_body_raw(sse_body, "text/event-stream")
+}
+
+/// 200 OK with credits-depleted headers.
+pub fn credits_depleted_response() -> ResponseTemplate {
+    let sse_body = sse(vec![ev_completed("resp-cd")]);
+    ResponseTemplate::new(200)
+        .insert_header("content-type", "text/event-stream")
+        .insert_header("x-codex-credits-has-credits", "false")
+        .insert_header("x-codex-credits-unlimited", "false")
+        .insert_header("x-codex-credits-balance", "0.00")
+        .insert_header("x-codex-primary-used-percent", "100.0")
+        .insert_header("x-codex-primary-window-minutes", "1440")
+        .set_body_raw(sse_body, "text/event-stream")
+}
+
+/// 429 with workspace owner credits depleted error body.
+pub fn workspace_owner_credits_response() -> ResponseTemplate {
+    ResponseTemplate::new(429)
+        .insert_header("x-codex-primary-used-percent", "100.0")
+        .insert_header("x-codex-credits-has-credits", "false")
+        .set_body_json(serde_json::json!({
+            "error": {
+                "type": "usage_limit_reached",
+                "message": "Workspace owner credits depleted",
+                "rate_limit_reached_type": "workspace_owner_credits_depleted"
+            }
+        }))
+}
+
+/// 429 with workspace member usage limit error body.
+pub fn workspace_member_limit_response() -> ResponseTemplate {
+    ResponseTemplate::new(429)
+        .insert_header("x-codex-primary-used-percent", "100.0")
+        .set_body_json(serde_json::json!({
+            "error": {
+                "type": "usage_limit_reached",
+                "message": "Workspace member usage limit reached",
+                "rate_limit_reached_type": "workspace_member_usage_limit_reached"
+            }
+        }))
+}
+
+/// 429 usage_limit_reached with an additional promo_message field.
+pub fn usage_limit_with_promo(promo: &str, resets_at: i64) -> ResponseTemplate {
+    ResponseTemplate::new(429)
+        .insert_header("x-codex-primary-used-percent", "100.0")
+        .insert_header("x-codex-primary-window-minutes", "1440")
+        .insert_header("x-codex-primary-resets-at", resets_at.to_string())
+        .set_body_json(serde_json::json!({
+            "error": {
+                "type": "usage_limit_reached",
+                "message": "limit reached",
+                "resets_at": resets_at,
+                "plan_type": "pro",
+                "promo_message": promo
+            }
+        }))
+}
