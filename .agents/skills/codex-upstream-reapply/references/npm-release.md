@@ -1,90 +1,46 @@
 # NPM release
 
 Use this reference only when the old branch includes npm, release, or CI customization.
-If this file exists on `OLD_BRANCH`, treat it as the source of truth for release behavior during the reapply.
 
-## Release invariants
+## Goal
 
-Protect these outcomes first:
+Keep packaging and npm publishing working on top of the selected upstream `TAG`.
+Release workflow details may change between upstream tags, so preserve the intended package outcome instead of freezing an old CI shape.
+The default GitHub Actions surface is a single workflow: `.github/workflows/rust-release.yml`.
+Other workflows, checks, labels, stale automation, and test CI are out of scope unless packaging or npm publishing cannot work without adding a specific upstream piece.
 
-- Supported platforms still produce the release binaries required by the branch
-- The release workflow can fetch, verify, and package its build dependencies on those platforms
-- Platform npm packages are published before the root package that depends on them
-- Package identity stays aligned to `codext` unless the new upstream tag explicitly forces a rename
-- The launcher and install scripts still resolve the intended platform package and native binary
+## Sources of truth
 
-If an upstream CI change does not threaten these invariants, it does not earn a change.
+- Use `README.md` for user-facing package and command expectations.
+- Use `CHANGED.md` for detailed fork behavior and release notes.
+- Use old-branch release files as reference material.
+- Prefer `OLD_BRANCH`'s `.github/workflows/rust-release.yml` for GitHub Actions.
+- Use `upstream-release-impact.md` to notice upstream changes that may affect packaging or npm publishing.
 
-## Base
+## Decision rules
 
-- Review old-branch changes from `git diff BASE_COMMIT..OLD_BRANCH`
-- Default base is `BASE_COMMIT="$(git merge-base TAG OLD_BRANCH)"`
-- If merge-base inference is unreliable, pass `--old-base-tag`
+- Keep only `.github/workflows/rust-release.yml` by default.
+- Start from `OLD_BRANCH`'s `rust-release.yml`.
+- If upstream changed release scripts, artifact names, platform setup, dependency download, checksum verification, or npm publish order, check whether the change affects package build or npm publish behavior for this fork.
+- If it affects packaging or publishing, adapt the minimum needed upstream change while preserving the package identity and command behavior declared by the repo.
+- If upstream requires another workflow or config file for packaging or npm publishing, introduce only that required piece and record why.
+- If it does not affect packaging or publishing, leave the fork release behavior alone and ignore the upstream CI change.
+- If upstream already implements a needed release fix, record it as `covered by upstream`.
+- If the selected `TAG` requires a different implementation than `CHANGED.md` describes, keep the release outcome working and update `CHANGED.md` or `README.md` when their text would otherwise become misleading.
 
-## Keep package identity from `OLD_BRANCH`
+## Temporary notes
 
-- Published package: `@loongphy/codext`
-- Platform packages:
-  - `@loongphy/codext-linux-x64`
-  - `@loongphy/codext-linux-arm64`
-  - `@loongphy/codext-darwin-x64`
-  - `@loongphy/codext-darwin-arm64`
-  - `@loongphy/codext-win32-x64`
-- Installed command: `codext`
-- NPM entry script: `codex-cli/bin/codex.js`
-- The launcher may still execute `codex` or `codex.exe`
+Record release decisions in the reference bundle's temporary notes, such as `reapply-notes.md`.
+Include:
 
-Keep user-facing strings aligned to `codext`.
-For example, prefer `codext resume <session>`.
+- upstream changes that were adapted
+- upstream changes that were intentionally ignored
+- package identity or command-name decisions
+- README/CHANGED updates
+- any packaging or npm publish risk left for the user to review
 
-## Mandatory carry-over on `NEW_BRANCH`
+Summarize these notes to the user when the reapply is complete.
 
-Do these steps first.
-They preserve the existing release pipeline before any upstream review starts.
+## Ask the user only for unresolved product choices
 
-1. Replace `.github/workflows/rust-release.yml` with the version from `OLD_BRANCH`.
-2. Delete every other `.github/workflows/*` entry and keep only `rust-release.yml`.
-3. Copy these paths directly from `OLD_BRANCH`:
-   - `.github/actions/setup-rusty-v8-musl/action.yml`
-   - `.github/scripts/install-musl-build-tools.sh`
-   - `.github/scripts/rusty_v8_bazel.py`
-   - `codex-cli/package.json`
-   - `codex-cli/bin/codex.js`
-   - `codex-cli/bin/rg`
-   - `codex-cli/scripts/build_npm_package.py`
-   - `codex-cli/scripts/install_native_deps.py`
-
-Treat those paths as whole-file or whole-directory carry-over.
-Do not re-derive publish names, dist-tags, or release text field by field.
-
-## Review upstream impact after carry-over
-
-After the mandatory carry-over, review `upstream-release-impact.md` from the bundle.
-That artifact is generated from the upstream delta on release-critical paths between `BASE_COMMIT` and `TAG`.
-
-Treat upstream changes as release-impacting when they affect:
-
-- release workflow topology, platform matrix, artifact names, or publish order
-- musl or V8 setup, dependency download, or checksum verification
-- packaging scripts, launcher behavior, or native dependency install logic
-- any path that would change whether multi-platform artifacts can be built or published correctly
-
-If the upstream change does not affect the release invariants, keep the old release flow and do nothing.
-If it does affect an invariant, adapt the minimum required pieces from upstream while preserving the established `codext` identity unless upstream forces a change.
-
-## Evolve the skill when a new breakage mode appears
-
-If upstream introduced a release-breaking pattern that this skill did not already cover, update the skill in the same wave:
-
-- update this reference when the rule is procedural or judgment-heavy
-- update `scripts/prepare_reimplementation_bundle.sh` when the critical-path review list is incomplete
-- update `scripts/start_from_tag.sh` when the carry-over behavior itself must change
-
-The next reapply should inherit the lesson structurally, not from memory.
-
-## Ask the user only for real conflicts
-
-- You are about to delete a publish entry that users may still rely on
-- The new upstream tag adds a release or CI entry and you cannot tell whether it is required or obsolete
-- The new upstream tag explicitly requires changing current publish names, install commands, dist-tags, or release artifact matrix
-- The old branch and current tag clearly conflict on supported release platforms
+Ask only when the repo does not make the required package identity, command name, supported platforms, or publish target clear, and more than one choice would produce a different user-visible release outcome.

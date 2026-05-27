@@ -26,7 +26,8 @@ Options:
   -h, --help              Show help
 
 Outputs:
-  META.md, changed-files.txt, diff.patch, diffstat.txt, commits.txt, old/...
+  META.md, changed-files.txt, diff.patch, diffstat.txt, commits.txt,
+  coverage-checklist.md, reapply-notes.md, old/...
 EOF
 }
 
@@ -99,6 +100,9 @@ default_reapply_action_for_path() {
     .github/workflows/rust-release.yml|.github/actions/setup-rusty-v8-musl/action.yml|.github/scripts/install-musl-build-tools.sh|.github/scripts/rusty_v8_bazel.py|codex-cli/package.json|codex-cli/bin/codex.js|codex-cli/bin/rg|codex-cli/scripts/build_npm_package.py|codex-cli/scripts/install_native_deps.py)
       printf '%s\n' "auto carry-over when npm/release reapply rules are enabled"
       ;;
+    .github/workflows/*)
+      printf '%s\n' "ignore unless required for packaging or npm publish"
+      ;;
     *)
       printf '%s\n' "manual re-implementation required"
       ;;
@@ -108,7 +112,7 @@ default_reapply_action_for_path() {
 readonly NPM_RELEASE_SKILL_REF=".agents/skills/codex-upstream-reapply/references/npm-release.md"
 
 readonly RELEASE_IMPACT_PATHS=(
-  ".github/workflows/rust-release.yml"
+  ".github/workflows"
   ".github/actions/setup-rusty-v8-musl/action.yml"
   ".github/scripts/install-musl-build-tools.sh"
   ".github/scripts/rusty_v8_bazel.py"
@@ -139,17 +143,18 @@ write_upstream_release_impact_review() {
 # Upstream Release Impact Review
 
 Generated because \`${NPM_RELEASE_SKILL_REF}\` exists on \`${old_branch}\`.
-Review this after the mandatory release carry-over.
+Review this after the mandatory \`.github/workflows/rust-release.yml\` carry-over.
 
 - base_commit: \`${base_commit}\`
 - selected_ref: \`${base_ref}\`
 
-## Release invariants
+## Packaging and npm publish goal
 
+- Keep \`.github/workflows/rust-release.yml\` as the only default GitHub Actions workflow
+- Prefer \`OLD_BRANCH\`'s \`rust-release.yml\` over upstream's general CI
+- Introduce other upstream workflow/config pieces only if package build or npm publish cannot work without them
 - Supported platforms still produce the release binaries required by the branch
-- The release workflow can fetch, verify, and package its build dependencies on those platforms
-- Platform npm packages are published before the root package that depends on them
-- Package identity stays aligned to \`codext\` unless upstream forces a rename
+- NPM packages are published in the order required by the package graph
 - Launcher and install scripts still resolve the intended platform package and native binary
 
 ## Critical paths monitored
@@ -176,11 +181,11 @@ EOF
 
 ## Review checklist
 
-- Does any change alter the platform matrix, artifact names, or publish order?
+- Does any upstream change alter the packaging workflow, platform matrix, artifact names, or publish order?
 - Does any change alter musl or V8 setup, dependency download, or checksum validation?
 - Does any change alter package build, launcher, or native dependency install behavior?
-- If no invariant is threatened, keep the old release flow unchanged.
-- If an invariant is threatened, adapt the minimum required upstream behavior and update the skill docs or scripts in the same wave.
+- Ignore upstream CI changes unrelated to packaging or npm publishing.
+- If package build or npm publish behavior is affected, adapt the minimum required upstream behavior, including any necessary extra workflow/config file, and record it in reapply-notes.md.
 EOF
   } > "${out_file}"
 
@@ -351,6 +356,29 @@ git diff --name-status "${base_commit}..${OLD_BRANCH}" > "${OUT_DIR}/changed-fil
 git diff --stat "${base_commit}..${OLD_BRANCH}" > "${OUT_DIR}/diffstat.txt"
 git diff "${base_commit}..${OLD_BRANCH}" > "${OUT_DIR}/diff.patch"
 git log --reverse --oneline "${base_commit}..${OLD_BRANCH}" > "${OUT_DIR}/commits.txt"
+
+cat > "${OUT_DIR}/reapply-notes.md" <<'EOF'
+# Reapply Notes
+
+Use this temporary file for decisions that should be reported to the user but
+do not belong in committed docs.
+
+## Feature Decisions
+
+- covered by upstream:
+- adapted due to upstream changes:
+- README.md updates:
+- CHANGED.md updates:
+- dropped with reason:
+
+## Release / NPM Decisions
+
+- adapted upstream release changes:
+- ignored upstream release changes:
+- additional workflow/config introduced:
+- package identity or command-name decisions:
+- packaging or npm publish risks:
+EOF
 
 if has_npm_release_reapply "${OLD_BRANCH}"; then
   write_upstream_release_impact_review \

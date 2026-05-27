@@ -363,6 +363,11 @@ impl ChatWidget {
     }
 
     pub(super) fn on_rate_limit_error(&mut self, error_kind: RateLimitErrorKind, message: String) {
+        if matches!(error_kind, RateLimitErrorKind::UsageLimit) {
+            self.input_queue.suppress_queue_autosend = true;
+            self.bottom_pane
+                .set_queue_submissions(/*queue_submissions*/ true);
+        }
         let rate_limit_reached_type = self.codex_rate_limit_reached_type.map(|kind| {
             if matches!(error_kind, RateLimitErrorKind::UsageLimit) {
                 match kind {

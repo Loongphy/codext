@@ -221,6 +221,9 @@ impl ChatWidget {
                 .as_ref()
                 .map(|credits| credits.has_credits)
                 .unwrap_or(false);
+            let should_resume_paused_queue = is_codex_limit
+                && self.input_queue.suppress_queue_autosend
+                && Self::rate_limit_snapshot_has_available_quota(&snapshot);
 
             if high_usage
                 && !has_workspace_credits
@@ -245,6 +248,12 @@ impl ChatWidget {
                 }
                 self.request_redraw();
             }
+            if should_resume_paused_queue {
+                self.input_queue.suppress_queue_autosend = false;
+                self.bottom_pane
+                    .set_queue_submissions(/*queue_submissions*/ false);
+                self.maybe_send_next_queued_input();
+            }
         } else {
             self.rate_limit_snapshots_by_limit_id.clear();
             self.codex_rate_limit_reached_type = None;
@@ -257,6 +266,18 @@ impl ChatWidget {
     #[cfg_attr(not(test), allow(dead_code))]
     pub(super) fn prefetch_rate_limits(&mut self) {
         self.stop_rate_limit_poller();
+    }
+
+    fn rate_limit_snapshot_has_available_quota(snapshot: &RateLimitSnapshot) -> bool {
+        let windows = [snapshot.primary.as_ref(), snapshot.secondary.as_ref()];
+        let mut saw_window = false;
+        for window in windows.into_iter().flatten() {
+            saw_window = true;
+            if window.used_percent >= 100 {
+                return false;
+            }
+        }
+        saw_window
     }
 
     #[cfg_attr(not(test), allow(dead_code))]
