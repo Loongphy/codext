@@ -31,24 +31,38 @@ across the TUI:
 When the status header is absent (no content), the bottom pane receives a 1-line top inset
 instead, so the composer never sits flush against the transcript area.
 
+## Required icons (Nerd Font v3)
+
+All icons are **Nerd Font** Unicode codepoints. Do **not** substitute emoji or ASCII alternatives.
+
+| Segment    | Codepoint  | Character | Description        |
+|------------|------------|-----------|--------------------|
+| Model      | `\u{ee9c}` | ``        | Codify icon        |
+| Directory  | `\u{f07c}` | ``        | Folder open icon   |
+| Git        | `\u{f418}` | ``        | Git branch icon    |
+| Rate limit | `\u{f464}` | ``        | Clock icon         |
+
+When computing display width, use `UnicodeWidthStr::width("\u{ee9c} ")` (icon + trailing space),
+not a hardcoded integer.
+
 ## Required color mapping
 
 - Segment order is fixed: model, directory, git, rate limit, account. Omit unavailable segments
   without reordering the remaining visible segments.
-- Model segment: icon + label in cyan.
-- Directory segment: icon + path in yellow.
+- Model segment: icon + label in **cyan**.
+- Directory segment: icon + path in **yellow**.
 - Git segment:
-  - icon + branch in blue
-  - ahead count in green
-  - behind count in red
-  - changed count in yellow
-  - untracked count in red
-- Rate limit segment: icon + summary in cyan.
+  - icon + branch in **blue**
+  - ahead count in **green**
+  - behind count in **red**
+  - changed count in **yellow** (not magenta)
+  - untracked count in **red**
+- Rate limit segment: icon + summary in **cyan**.
   - Summary format: `95% 23:19`
-- Account segment: label only in cyan, always last when present.
+- Account segment: label only in **cyan**, always last when present.
   - ChatGPT account format: `user@example.com(Pro)`
   - API-key auth format: `API key`
-- Segment separator: " │ " in dim.
+- Segment separator: " │ " in **dim**.
 
 ## Reference snippet (behavioral template, adapt to local architecture)
 
@@ -134,3 +148,14 @@ exact code.
   segment. If the session `cwd` changes, retarget polling/refresh to the new `cwd`, clear stale git
   state, and ignore late results from the previous `cwd` so an old worktree cannot overwrite the
   new header context.
+
+## Implementation checklist
+
+Before finalizing a status header change, verify:
+
+- [ ] All four icons use Nerd Font codepoints (`\u{ee9c}`, `\u{f07c}`, `\u{f418}`, `\u{f464}`), not emoji
+- [ ] Directory icon + path use `.yellow()`, not `.magenta()` or other color
+- [ ] Git changed count uses `.yellow()`, not `.magenta()`
+- [ ] Width calculations use `UnicodeWidthStr::width("\u{xxxx} ")` matching the actual icon
+- [ ] Segment order: model → directory → git → rate limit → account
+- [ ] Separator is `.dim()`, not colored
