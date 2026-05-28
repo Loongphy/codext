@@ -14,6 +14,23 @@ Apply these conventions every time the status header bar is implemented or modif
 - Do not assume the classic `tui` is the runtime path users see. Check the current dispatch path for the target tag/config before deciding which implementation to edit.
 - Match behavior first, not plumbing. Different TUI surfaces may use local polling, bootstrap data, or app-server events; any source is acceptable as long as the rendered header stays behaviorally aligned and fresh.
 
+## Layout and spacing
+
+The status header is rendered as the first child of a `ColumnRenderable` inside the bottom
+section, directly above the bottom pane (chat composer). To keep the visual rhythm consistent
+across the TUI:
+
+- **Top spacing:** The status header row is preceded by a 1-line top inset
+  (`Insets::tlbr(/*top*/ 1, …)`), matching the top spacing used by the active cell and active
+  hook cell renderables.
+- **Bottom spacing:** The status header row is followed by a 1-line bottom inset
+  (`Insets::tlbr(…, /*bottom*/ 1, …)`) to separate it from the chat composer below.
+- **Left gutter:** The content is left-indented by [`LIVE_PREFIX_COLS`] columns, matching the
+  gutter used by the configurable footer `/statusline` and history cells.
+
+When the status header is absent (no content), the bottom pane receives a 1-line top inset
+instead, so the composer never sits flush against the transcript area.
+
 ## Required color mapping
 
 - Segment order is fixed: model, directory, git, rate limit, account. Omit unavailable segments

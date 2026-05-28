@@ -1,4 +1,19 @@
-//! Status header row shown above the chat composer.
+//! Status header row shown above the chat composer (bottom pane).
+//!
+//! # Layout
+//!
+//! The status header is rendered as the first child of the inner [`ColumnRenderable`]
+//! inside [`bottom_section_renderable`], directly above the bottom pane.
+//!
+//! To keep the visual rhythm consistent across the TUI:
+//!
+//! - **Top spacing:** The status header row is preceded by a 1-line top inset
+//!   (`Insets::tlbr(/*top*/ 1, …)`), matching the top spacing used by the active
+//!   cell and active hook cell renderables.
+//! - **Left gutter:** The content is left-indented by [`LIVE_PREFIX_COLS`] columns,
+//!   matching the gutter used by the configurable footer `/statusline` and history
+//!   cells. The same constant (`crate::ui_consts::LIVE_PREFIX_COLS`) drives both
+//!   indents, so any future change to the gutter width stays in sync automatically.
 
 use std::path::Path;
 use std::path::PathBuf;
@@ -22,10 +37,10 @@ pub(super) fn renderable(widget: &ChatWidget) -> Option<RenderableItem<'_>> {
 
     Some(
         RenderableItem::Owned(Box::new(status_header)).inset(Insets::tlbr(
-            0,
-            LIVE_PREFIX_COLS,
-            0,
-            0,
+            /*top*/ 1,
+            /*left*/ LIVE_PREFIX_COLS,
+            /*bottom*/ 1,
+            /*right*/ 0,
         )),
     )
 }

@@ -464,8 +464,7 @@ const USER_SHELL_COMMAND_HELP_HINT: &str = "Example: !ls";
 const AUTO_REVIEW_DESCRIPTION: &str = "Same workspace-write permissions as Default, but eligible `on-request` approvals are routed through the auto-reviewer subagent.";
 const DEFAULT_OPENAI_BASE_URL: &str = "https://api.openai.com/v1";
 const DEFAULT_STATUS_LINE_ITEMS: [&str; 2] = ["model-with-reasoning", "current-dir"];
-const DEFAULT_USAGE_LIMIT_RESUME_PROMPT: &str =
-    "Please continue from where the conversation left off after the usage limit reset or account switch.";
+const DEFAULT_USAGE_LIMIT_RESUME_PROMPT: &str = "Please continue from where the conversation left off after the usage limit reset or account switch.";
 const MAX_AGENT_COPY_HISTORY: usize = 32;
 
 /// Common initialization parameters shared by all `ChatWidget` constructors.
