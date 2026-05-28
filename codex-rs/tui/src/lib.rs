@@ -105,6 +105,7 @@ mod audio_device {
         ))
     }
 }
+mod auth_watch;
 mod bottom_pane;
 mod branch_summary;
 mod chatwidget;
@@ -131,6 +132,7 @@ mod file_search;
 mod frames;
 mod get_git_diff;
 mod git_action_directives;
+mod git_status;
 mod goal_display;
 mod history_cell;
 mod hooks_rpc;
