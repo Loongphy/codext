@@ -69,7 +69,7 @@ jobs:
           sudo apt-get "${apt_retry_args[@]}" update -y
           sudo DEBIAN_FRONTEND=noninteractive apt-get "${apt_retry_args[@]}" install -y --no-install-recommends pkg-config libcap-dev libubsan1
 
-      - uses: dtolnay/rust-toolchain@1.93.0
+      - uses: dtolnay/rust-toolchain@e081816240890017053eacbb1bdf337761dc5582 # 1.95.0
         with:
           targets: ${{ matrix.target }}
 
@@ -195,7 +195,7 @@ jobs:
     steps:
       - uses: actions/checkout@v6
 
-      - uses: dtolnay/rust-toolchain@1.93.0
+      - uses: dtolnay/rust-toolchain@e081816240890017053eacbb1bdf337761dc5582 # 1.95.0
         with:
           targets: ${{ matrix.target }}
 
