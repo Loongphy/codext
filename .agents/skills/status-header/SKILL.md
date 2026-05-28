@@ -5,66 +5,45 @@ description: 'Enforce the standard TUI status header layout, icons, colors, and 
 
 # Status Header
 
-Apply these conventions every time the status header bar is implemented or modified. Treat this skill as defining user-visible behavior, not as permission to update only one code path. Use Stylize helpers and keep the segment order/formatting consistent.
+## Scope
 
-## Scope and synchronization
+If multiple TUI surfaces render the same header (e.g. `codex-rs/tui` and `codex-rs/tui_app_server`), keep them aligned. Check current dispatch path before deciding which to edit.
 
-- Before editing the header, identify every implementation that renders the same user-visible surface. In the current upstream layout this is the app-server-backed `codex-rs/tui` surface.
-- If another implementation also exposes the same header, keep them aligned. Do not mark the task complete after changing only one side unless the other side has been intentionally removed upstream or there is a documented reason not to sync it.
-- Do not assume the classic `tui` is the runtime path users see. Check the current dispatch path for the target tag/config before deciding which implementation to edit.
-- Match behavior first, not plumbing. Different TUI surfaces may use local polling, bootstrap data, or app-server events; any source is acceptable as long as the rendered header stays behaviorally aligned and fresh.
+## Layout
 
-## Layout and spacing
+Header sits above the chat composer inside a `ColumnRenderable` in the bottom section.
 
-The status header is rendered as the first child of a `ColumnRenderable` inside the bottom
-section, directly above the bottom pane (chat composer). To keep the visual rhythm consistent
-across the TUI:
+- Top inset: `Insets::tlbr(1, LIVE_PREFIX_COLS, 1, 0)`
+- Left gutter: `LIVE_PREFIX_COLS` columns
+- When no content: bottom pane gets 1-line top inset instead
 
-- **Top spacing:** The status header row is preceded by a 1-line top inset
-  (`Insets::tlbr(/*top*/ 1, …)`), matching the top spacing used by the active cell and active
-  hook cell renderables.
-- **Bottom spacing:** The status header row is followed by a 1-line bottom inset
-  (`Insets::tlbr(…, /*bottom*/ 1, …)`) to separate it from the chat composer below.
-- **Left gutter:** The content is left-indented by [`LIVE_PREFIX_COLS`] columns, matching the
-  gutter used by the configurable footer `/statusline` and history cells.
+## Segment order (fixed)
 
-When the status header is absent (no content), the bottom pane receives a 1-line top inset
-instead, so the composer never sits flush against the transcript area.
+model → directory → git → rate limit → account
 
-## Required icons (Nerd Font v3)
+Omit unavailable segments without reordering.
 
-All icons are **Nerd Font** Unicode codepoints. Do **not** substitute emoji or ASCII alternatives.
+## Icons (Nerd Font v3, never emoji)
 
-| Segment    | Codepoint  | Character | Description        |
-|------------|------------|-----------|--------------------|
-| Model      | `\u{ee9c}` | ``        | Codify icon        |
-| Directory  | `\u{f07c}` | ``        | Folder open icon   |
-| Git        | `\u{f418}` | ``        | Git branch icon    |
-| Rate limit | `\u{f464}` | ``        | Clock icon         |
+| Segment    | Codepoint  | Color    |
+|------------|------------|----------|
+| Model      | `\u{ee9c}` | cyan     |
+| Directory  | `\u{f07c}` | yellow   |
+| Git        | `\u{f418}` | blue     |
+| Rate limit | `\u{f464}` | cyan     |
 
-When computing display width, use `UnicodeWidthStr::width("\u{ee9c} ")` (icon + trailing space),
-not a hardcoded integer.
+Width calc: `UnicodeWidthStr::width("\u{ee9c} ")` (icon + space).
 
-## Required color mapping
+## Colors
 
-- Segment order is fixed: model, directory, git, rate limit, account. Omit unavailable segments
-  without reordering the remaining visible segments.
-- Model segment: icon + label in **cyan**.
-- Directory segment: icon + path in **yellow**.
-- Git segment:
-  - icon + branch in **blue**
-  - ahead count in **green**
-  - behind count in **red**
-  - changed count in **yellow** (not magenta)
-  - untracked count in **red**
-- Rate limit segment: icon + summary in **cyan**.
-  - Summary format: `95% 23:19`
-- Account segment: label only in **cyan**, always last when present.
-  - ChatGPT account format: `user@example.com(Pro)`
-  - API-key auth format: `API key`
-- Segment separator: " │ " in **dim**.
+- Model: icon + label, cyan
+- Directory: icon + path, yellow
+- Git: icon + branch blue, ↑ahead green, ↓behind red, +changed yellow, ?untracked red
+- Rate limit: icon + summary cyan (format: `95% 23:19`)
+- Account: label only cyan, always last. ChatGPT: `user@example.com(Pro)`, API key: `API key`
+- Separator: ` │ ` dim
 
-## Reference snippet (behavioral template, adapt to local architecture)
+## Example
 
 ```rust
 let mut spans: Vec<Span<'static>> = Vec::new();
@@ -76,38 +55,24 @@ let mut push_segment = |segment: Vec<Span<'static>>| {
 };
 
 if let Some(model_name) = self.model_name.as_ref() {
-    let label = format_model_label(model_name);
-    push_segment(vec!["\u{ee9c} ".cyan(), Span::from(label).cyan()]);
+    push_segment(vec!["\u{ee9c} ".cyan(), Span::from(model_name.clone()).cyan()]);
 }
 
-if let Some(directory) = self.directory.as_ref() {
-    push_segment(vec![
-        "\u{f07c} ".yellow(),
-        Span::from(directory.clone()).yellow(),
-    ]);
+if !directories.is_empty() {
+    let mut segment = vec!["\u{f07c} ".yellow()];
+    for (idx, path) in directories.iter().enumerate() {
+        if idx > 0 { segment.push(" ".dim()); }
+        segment.push(Span::from(path.clone()).yellow());
+    }
+    push_segment(segment);
 }
 
-if let Some(git_status) = self.git_status.as_ref() {
-    let mut segment = vec![
-        "\u{f418} ".blue(),
-        Span::from(git_status.branch.clone()).blue(),
-    ];
-    let ahead = git_status.ahead;
-    if ahead > 0 {
-        segment.push(Span::from(format!(" ↑{ahead}")).green());
-    }
-    let behind = git_status.behind;
-    if behind > 0 {
-        segment.push(Span::from(format!(" ↓{behind}")).red());
-    }
-    let changed = git_status.changed;
-    if changed > 0 {
-        segment.push(Span::from(format!(" +{changed}")).yellow());
-    }
-    let untracked = git_status.untracked;
-    if untracked > 0 {
-        segment.push(Span::from(format!(" ?{untracked}")).red());
-    }
+if let Some(git) = self.git_status.as_ref() {
+    let mut segment = vec!["\u{f418} ".blue(), Span::from(git.branch.clone()).blue()];
+    if git.ahead > 0 { segment.push(format!(" ↑{}", git.ahead).green()); }
+    if git.behind > 0 { segment.push(format!(" ↓{}", git.behind).red()); }
+    if git.changed > 0 { segment.push(format!(" +{}", git.changed).yellow()); }
+    if git.untracked > 0 { segment.push(format!(" ?{}", git.untracked).red()); }
     push_segment(segment);
 }
 
@@ -115,47 +80,22 @@ if let Some(summary) = self.rate_limit_summary.as_ref() {
     push_segment(vec!["\u{f464} ".cyan(), Span::from(summary.clone()).cyan()]);
 }
 
-if let Some(account_label) = self.account_label.as_ref() {
-    push_segment(vec![Span::from(account_label.clone()).cyan()]);
+if let Some(label) = self.account_label.as_ref() {
+    push_segment(vec![Span::from(label.clone()).cyan()]);
 }
 ```
 
-Use the snippet as a template for segment order, icon usage, and color intent. Adapt field names,
-ownership, helper selection, and refresh wiring to the local module instead of cargo-culting the
-exact code.
+## Async refresh
 
-## Usage notes
+- Rate limits: 15s background poll, redraw after each snapshot update
+- Git status: 15s poll keyed by session `cwd`; retarget on cwd change, clear stale state, ignore late results
+- Directory = session/thread `cwd`, not tool `workdir`
 
-- Only change colors if this skill explicitly instructs it; do not introduce new colors.
-- Keep the separator as dim to avoid competing with the segments.
-- Prefer the exact icon codes shown above unless the feature removes a segment entirely.
-- If a repo-level lint, style rule, or existing helper abstraction rejects the exact method calls in
-  the snippet, keep the same visual result using the repo-approved mechanism instead of forcing the
-  snippet verbatim.
-- If a status-header segment depends on background-polled or async state (for example rate-limit
-  data fetched from `/usage`), the update path must explicitly request a redraw/frame after the
-  cached state changes so the header updates while the UI is otherwise idle.
-- The redraw requirement applies to every implementation that renders the header. If multiple
-  TUI surfaces show the header, each side needs its own refresh path and redraw trigger.
-- Do not assume the rate-limit source must be local `/usage` polling; event-driven or
-  bootstrap-fed data is acceptable if it keeps the header equivalently fresh.
-- In this fork's app-server-backed `codex-rs/tui`, keep ChatGPT rate-limit snapshots fresh with a
-  15-second background refresh cadence and redraw the UI after each successful snapshot update.
-- Treat the directory segment as the session/thread `cwd`, not the transient `workdir` of an
-  individual tool call. Creating or using another git worktree does not change the header by
-  itself; the header switches only when the session `cwd` changes.
-- When header git state is refreshed asynchronously, key it by the same `cwd` as the directory
-  segment. If the session `cwd` changes, retarget polling/refresh to the new `cwd`, clear stale git
-  state, and ignore late results from the previous `cwd` so an old worktree cannot overwrite the
-  new header context.
+## Checklist
 
-## Implementation checklist
-
-Before finalizing a status header change, verify:
-
-- [ ] All four icons use Nerd Font codepoints (`\u{ee9c}`, `\u{f07c}`, `\u{f418}`, `\u{f464}`), not emoji
-- [ ] Directory icon + path use `.yellow()`, not `.magenta()` or other color
-- [ ] Git changed count uses `.yellow()`, not `.magenta()`
-- [ ] Width calculations use `UnicodeWidthStr::width("\u{xxxx} ")` matching the actual icon
-- [ ] Segment order: model → directory → git → rate limit → account
-- [ ] Separator is `.dim()`, not colored
+- [ ] All icons are Nerd Font codepoints, not emoji
+- [ ] Directory uses yellow, not magenta
+- [ ] Git changed count uses yellow, not magenta
+- [ ] Width calculations match actual icon codepoints
+- [ ] Segment order correct
+- [ ] Separator is dim
