@@ -13,11 +13,9 @@ This file captures the fork-specific behavior reapplied on top of the current up
 
 ## TUI status header and polling
 
-**Implementation must follow the `status-header` skill** (`.agents/skills/status-header/SKILL.md`) for icons, colors, segment order, and layout. Do not substitute emoji or alter colors without updating the skill first.
+Implementation must follow the status-header skill .agents/skills/status-header/SKILL.md
 
 - Added a status header above the composer in the app-server-backed `codex-rs/tui` surface. Segment order is fixed as model + reasoning effort, current directory, git branch/ahead/behind/changes, rate-limit remaining/reset time, then account identity.
-- Status header icons are Nerd Font v3 codepoints: model `\u{ee9c}`, directory `\u{f07c}`, git `\u{f418}`, rate limit `\u{f464}`. Never use emoji.
-- Status header colors: model=cyan, directory=yellow, git branch=blue, ahead=green, behind=red, changed=yellow, untracked=red, rate limit=cyan, account=cyan, separator=dim.
 - Status header account identity is the last segment without an icon: ChatGPT accounts render as `user@example.com(Pro)` and API-key auth renders as `API key`.
 - Status header layout uses 1-line top and bottom insets (`Insets::tlbr(/*top*/ 1, …, /*bottom*/ 1, …)`) to separate it from the transcript area above and the chat composer below, matching the visual rhythm of the active cell and hook cell renderables.
 - Git status is collected in the background (15s interval, 2s timeout) and rendered when available.
