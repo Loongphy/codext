@@ -26,16 +26,21 @@ impl ChatWidget {
         let mut flex = FlexRenderable::new();
         flex.push(/*flex*/ 1, active_cell_renderable);
         flex.push(/*flex*/ 0, active_hook_cell_renderable);
-        flex.push(
-            /*flex*/ 0,
+        let bottom_pane_renderable =
             RenderableItem::Owned(Box::new(BottomPaneComposerReserveRenderable {
                 bottom_pane: &self.bottom_pane,
                 right_reserve: active_cell_right_reserve,
-            }))
-            .inset(Insets::tlbr(
+            }));
+        let bottom_section_renderable = match super::status_header::renderable(self) {
+            Some(status_header) => RenderableItem::Owned(Box::new(ColumnRenderable::with(vec![
+                status_header,
+                bottom_pane_renderable,
+            ]))),
+            None => bottom_pane_renderable.inset(Insets::tlbr(
                 /*top*/ 1, /*left*/ 0, /*bottom*/ 0, /*right*/ 0,
             )),
-        );
+        };
+        flex.push(/*flex*/ 0, bottom_section_renderable);
         RenderableItem::Owned(Box::new(flex))
     }
 }

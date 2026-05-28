@@ -112,8 +112,7 @@ pub(crate) struct ConnectorsSnapshot {
 /// Distinguishes why a rate-limit refresh was requested so the completion
 /// handler can route the result correctly.
 ///
-/// A `StartupPrefetch` fires once, concurrently with the rest of TUI init, and
-/// only updates the cached snapshots (no status card to finalize). A
+/// `StartupPrefetch` and `BackgroundPoll` update cached snapshots only. A
 /// `StatusCommand` is tied to a specific `/status` invocation and must call
 /// `finish_status_rate_limit_refresh` when done so the card stops showing a
 /// "refreshing" state.
@@ -121,6 +120,8 @@ pub(crate) struct ConnectorsSnapshot {
 pub(crate) enum RateLimitRefreshOrigin {
     /// Eagerly fetched after bootstrap so the first `/status` already has data.
     StartupPrefetch,
+    /// Periodic refresh used to keep the status header and queue gating fresh.
+    BackgroundPoll,
     /// User-initiated via `/status`; the `request_id` correlates with the
     /// status card that should be updated when the fetch completes.
     StatusCommand { request_id: u64 },
@@ -287,6 +288,14 @@ pub(crate) enum AppEvent {
     RateLimitsLoaded {
         origin: RateLimitRefreshOrigin,
         result: Result<Vec<RateLimitSnapshot>, String>,
+    },
+
+    /// auth.json changed on disk.
+    AuthFileChanged,
+
+    /// Retry a failed auth reload attempt after debounce/backoff.
+    AuthFileChangedRetry {
+        attempt: u8,
     },
 
     /// Send a user-confirmed request to notify the workspace owner.
@@ -940,6 +949,11 @@ pub(crate) enum AppEvent {
     StatusLineGitSummaryUpdated {
         cwd: PathBuf,
         summary: crate::chatwidget::StatusLineGitSummary,
+    },
+    /// Async update of the compact status-header Git state.
+    StatusHeaderGitStatusUpdated {
+        cwd: PathBuf,
+        summary: Option<crate::git_status::GitStatusSummary>,
     },
     /// Apply a user-confirmed status-line item ordering/selection.
     StatusLineSetup {
