@@ -184,22 +184,22 @@ impl StatusHeaderBar {
         };
 
         if let Some(model_name) = self.model_name.as_ref() {
-            push_segment(vec![" ".cyan(), Span::from(model_name.clone()).cyan()]);
+            push_segment(vec!["\u{ee9c} ".cyan(), Span::from(model_name.clone()).cyan()]);
         }
 
         if !directories.is_empty() {
-            let mut segment = vec![" ".magenta()];
+            let mut segment = vec!["\u{f07c} ".yellow()];
             for (idx, path) in directories.iter().enumerate() {
                 if idx > 0 {
                     segment.push(" ".dim());
                 }
-                segment.push(Span::from(path.clone()).magenta());
+                segment.push(Span::from(path.clone()).yellow());
             }
             push_segment(segment);
         }
 
         if let Some(git_status) = self.git_status.as_ref() {
-            let mut segment = vec![" ".blue(), Span::from(git_status.branch.clone()).blue()];
+            let mut segment = vec!["\u{f418} ".blue(), Span::from(git_status.branch.clone()).blue()];
             let ahead = git_status.ahead;
             if ahead > 0 {
                 segment.push(format!(" ↑{ahead}").green());
@@ -210,7 +210,7 @@ impl StatusHeaderBar {
             }
             let changed = git_status.changed;
             if changed > 0 {
-                segment.push(format!(" +{changed}").magenta());
+                segment.push(format!(" +{changed}").yellow());
             }
             let untracked = git_status.untracked;
             if untracked > 0 {
@@ -220,7 +220,7 @@ impl StatusHeaderBar {
         }
 
         if let Some(summary) = self.rate_limit_summary.as_ref() {
-            push_segment(vec![" ".cyan(), Span::from(summary.clone()).cyan()]);
+            push_segment(vec!["\u{f464} ".cyan(), Span::from(summary.clone()).cyan()]);
         }
 
         if let Some(account_label) = self.account_label.as_ref() {
@@ -234,7 +234,7 @@ impl StatusHeaderBar {
         let model_width = self
             .model_name
             .as_ref()
-            .map(|model_name| UnicodeWidthStr::width(" ") + model_name.width())
+            .map(|model_name| UnicodeWidthStr::width("\u{ee9c} ") + model_name.width())
             .unwrap_or(0);
         let account_width = self
             .account_label
@@ -244,13 +244,13 @@ impl StatusHeaderBar {
         let directory_width = if self.directories.is_empty() {
             0
         } else {
-            UnicodeWidthStr::width(" ") + self.directories.len().saturating_sub(1)
+            UnicodeWidthStr::width("\u{f07c} ") + self.directories.len().saturating_sub(1)
         };
         let git_width = self
             .git_status
             .as_ref()
             .map(|git_status| {
-                let mut width = UnicodeWidthStr::width(" ") + git_status.branch.as_str().width();
+                let mut width = UnicodeWidthStr::width("\u{f418} ") + git_status.branch.as_str().width();
                 let ahead = git_status.ahead;
                 if ahead > 0 {
                     width += format!(" ↑{ahead}").width();
@@ -273,7 +273,7 @@ impl StatusHeaderBar {
         let rate_limit_width = self
             .rate_limit_summary
             .as_ref()
-            .map(|summary| UnicodeWidthStr::width(" ") + summary.width())
+            .map(|summary| UnicodeWidthStr::width("\u{f464} ") + summary.width())
             .unwrap_or(0);
         let segment_count = usize::from(self.model_name.is_some())
             + usize::from(self.account_label.is_some())
