@@ -57,6 +57,22 @@ async fn tab_queues_while_usage_limit_paused_and_idle() {
 }
 
 #[tokio::test]
+async fn exhausted_rate_limit_snapshot_pauses_idle_tab_before_first_submit() {
+    let (mut chat, _rx, mut op_rx) = make_chatwidget_manual(/*model_override*/ None).await;
+    chat.thread_id = Some(ThreadId::new());
+
+    chat.on_rate_limit_snapshot(Some(snapshot(/*percent*/ 100.0)));
+
+    tab_queue(&mut chat, "queued before first turn");
+
+    assert_eq!(
+        chat.queued_user_message_texts(),
+        vec!["queued before first turn"]
+    );
+    assert_no_submit_op(&mut op_rx);
+}
+
+#[tokio::test]
 async fn available_rate_limit_snapshot_resumes_first_queued_message_only() {
     let (mut chat, _rx, mut op_rx) = make_chatwidget_manual(/*model_override*/ None).await;
     chat.thread_id = Some(ThreadId::new());

@@ -2,6 +2,8 @@
 source: tui/src/chatwidget/tests/popups_and_settings.rs
 expression: popup
 ---
+   gpt-5.5 default │  /tmp/project │ API key
+
   How was this?
 
 › 1. bug           Crash, error message, hang, or broken UI/behavior.

@@ -11,7 +11,7 @@ expression: normalize_snapshot_paths(term.backend().vt100().screen().contents())
 
 
 
-
+   gpt-5.5 default │  /tmp/project │ API key
 • Working (0s • esc to interrupt)
 
 • Messages to be submitted at end of turn

@@ -2,6 +2,8 @@
 source: tui/src/chatwidget/tests/popups_and_settings.rs
 expression: before
 ---
+   gpt-5.5 default │  /tmp/project
+
   Apps
   Loading installed and available apps...
 

@@ -388,6 +388,7 @@ use self::realtime::RealtimeConversationUiState;
 mod reasoning_shortcuts;
 mod review;
 mod review_popups;
+mod status_header;
 use self::review::ReviewState;
 #[cfg(test)]
 pub(crate) use self::review_popups::show_review_commit_picker_with_entries;
@@ -701,6 +702,12 @@ pub(crate) struct ChatWidget {
     status_line_git_summary_pending: bool,
     // True once we've attempted a Git summary lookup for the current CWD.
     status_line_git_summary_lookup_complete: bool,
+    // Cached Git status for the compact status header.
+    status_header_git_status: Option<crate::git_status::GitStatusSummary>,
+    // CWD used by the active header Git status poller.
+    status_header_git_status_cwd: Option<PathBuf>,
+    // Background poller for header Git status; aborted when this widget is dropped or retargeted.
+    status_header_git_status_task: Option<tokio::task::JoinHandle<()>>,
     // Current thread-goal status shown in the status line when plan mode is inactive.
     current_goal_status_indicator: Option<GoalStatusIndicator>,
     current_goal_status: Option<GoalStatusState>,
@@ -1880,6 +1887,7 @@ impl Drop for ChatWidget {
     fn drop(&mut self) {
         self.reset_realtime_conversation_state();
         self.stop_rate_limit_poller();
+        self.stop_status_header_git_status_poller();
     }
 }
 

@@ -2,6 +2,7 @@
 source: tui/src/chatwidget/tests/exec_flow.rs
 expression: normalize_snapshot_paths(rendered)
 ---
+   gpt-5.5 default │  /tmp/project │ API key
 • Waiting for background terminal (0s • esc to …
   └ cargo test -p codex-core -- --exact…
 

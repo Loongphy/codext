@@ -1336,18 +1336,18 @@ async fn review_custom_prompt_escape_navigates_back_then_dismisses() {
     chat.show_review_custom_prompt();
 
     // Verify child view is on top.
-    let header = render_bottom_first_row(&chat, /*width*/ 60);
+    let popup = render_bottom_popup(&chat, /*width*/ 60);
     assert!(
-        header.contains("Custom review instructions"),
-        "expected custom prompt view header: {header:?}"
+        popup.contains("Custom review instructions"),
+        "expected custom prompt view header: {popup:?}"
     );
 
     // Esc once: child view closes, parent (review presets) remains.
     chat.handle_key_event(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
-    let header = render_bottom_first_row(&chat, /*width*/ 60);
+    let popup = render_bottom_popup(&chat, /*width*/ 60);
     assert!(
-        header.contains("Select a review preset"),
-        "expected to return to parent review popup: {header:?}"
+        popup.contains("Select a review preset"),
+        "expected to return to parent review popup: {popup:?}"
     );
 
     // Esc again: parent closes; back to normal composer state.
@@ -1372,18 +1372,18 @@ async fn review_branch_picker_escape_navigates_back_then_dismisses() {
     chat.show_review_branch_picker(&cwd).await;
 
     // Verify child view header.
-    let header = render_bottom_first_row(&chat, /*width*/ 60);
+    let popup = render_bottom_popup(&chat, /*width*/ 60);
     assert!(
-        header.contains("Select a base branch"),
-        "expected branch picker header: {header:?}"
+        popup.contains("Select a base branch"),
+        "expected branch picker header: {popup:?}"
     );
 
     // Esc once: child view closes, parent remains.
     chat.handle_key_event(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
-    let header = render_bottom_first_row(&chat, /*width*/ 60);
+    let popup = render_bottom_popup(&chat, /*width*/ 60);
     assert!(
-        header.contains("Select a review preset"),
-        "expected to return to parent review popup: {header:?}"
+        popup.contains("Select a review preset"),
+        "expected to return to parent review popup: {popup:?}"
     );
 
     // Esc again: parent closes; back to normal composer state.

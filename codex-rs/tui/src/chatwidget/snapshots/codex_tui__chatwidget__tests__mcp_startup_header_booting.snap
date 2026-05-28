@@ -2,7 +2,7 @@
 source: tui/src/chatwidget/tests/mcp_startup.rs
 expression: normalized_backend_snapshot(terminal.backend())
 ---
-"                                                                                "
+"   gpt-5.5 default │  /tmp/project │ API key                                  "
 "• Booting MCP server: alpha (0s • esc to interrupt)                             "
 "                                                                                "
 "                                                                                "

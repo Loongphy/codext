@@ -7,8 +7,6 @@ use ratatui::text::Span;
 use ratatui::widgets::Widget;
 use unicode_width::UnicodeWidthStr;
 
-use crate::git_status::GitStatusSummary;
-use crate::status::RateLimitSnapshotDisplay;
 use crate::status::StatusAccountDisplay;
 use crate::ui_consts::LIVE_PREFIX_COLS;
 use codex_protocol::account::PlanType;
@@ -16,65 +14,78 @@ use codex_protocol::openai_models::ReasoningEffort as ReasoningEffortConfig;
 
 use super::*;
 
-pub(super) fn as_renderable(widget: &ChatWidget) -> RenderableItem<'_> {
-    let items = vec![
-        active_cell_renderable(widget),
-        active_hook_cell_renderable(widget),
-        RenderableItem::Owned(Box::new(bottom_section_renderable(widget))),
-    ];
-    RenderableItem::Owned(Box::new(ColumnRenderable::with(items)))
-}
-
-fn active_cell_renderable(widget: &ChatWidget) -> RenderableItem<'_> {
-    match &widget.transcript.active_cell {
-        Some(cell) => RenderableItem::Borrowed(cell).inset(Insets::tlbr(1, 0, 0, 0)),
-        None => RenderableItem::Owned(Box::new(())),
+pub(super) fn renderable(widget: &ChatWidget) -> Option<RenderableItem<'_>> {
+    let status_header = StatusHeaderBar::new(widget);
+    if !status_header.has_content() {
+        return None;
     }
+
+    Some(
+        RenderableItem::Owned(Box::new(status_header)).inset(Insets::tlbr(
+            0,
+            LIVE_PREFIX_COLS,
+            0,
+            0,
+        )),
+    )
 }
 
-fn active_hook_cell_renderable(widget: &ChatWidget) -> RenderableItem<'_> {
-    match &widget.active_hook_cell {
-        Some(cell) if cell.should_render() => {
-            RenderableItem::Borrowed(cell).inset(Insets::tlbr(1, 0, 0, 0))
+impl ChatWidget {
+    pub(super) fn sync_status_header_git_status_poller(&mut self) {
+        let cwd = self.status_line_cwd().to_path_buf();
+        if self.status_header_git_status_cwd.as_ref() == Some(&cwd)
+            && self.status_header_git_status_task.is_some()
+        {
+            return;
         }
-        _ => RenderableItem::Owned(Box::new(())),
-    }
-}
 
-fn bottom_section_renderable(widget: &ChatWidget) -> ColumnRenderable<'_> {
-    let status_header = StatusHeaderBar::new(
-        widget.model_display_name(),
-        widget.effective_reasoning_effort(),
-        widget.status_account_display(),
-        widget.current_plan_type(),
-        widget.has_chatgpt_account(),
-        Some(widget.status_line_cwd()),
-        widget.git_status.clone(),
-        widget
-            .rate_limit_snapshots_by_limit_id
-            .get("codex")
-            .or_else(|| widget.rate_limit_snapshots_by_limit_id.values().next()),
-    );
-    let mut items: Vec<RenderableItem<'_>> = Vec::new();
-    if status_header.has_content() {
-        items.push(
-            RenderableItem::Owned(Box::new(status_header)).inset(Insets::tlbr(
-                1,
-                LIVE_PREFIX_COLS,
-                1,
-                0,
-            )),
-        );
+        self.stop_status_header_git_status_poller();
+        self.status_header_git_status = None;
+        self.status_header_git_status_cwd = Some(cwd.clone());
+        self.request_redraw();
+
+        let app_event_tx = self.app_event_tx.clone();
+        self.status_header_git_status_task = Some(tokio::spawn(async move {
+            let mut last_summary: Option<crate::git_status::GitStatusSummary> = None;
+            loop {
+                let summary = crate::git_status::collect_git_status_summary(&cwd).await;
+                if summary != last_summary {
+                    last_summary.clone_from(&summary);
+                    app_event_tx.send(AppEvent::StatusHeaderGitStatusUpdated {
+                        cwd: cwd.clone(),
+                        summary,
+                    });
+                }
+                tokio::time::sleep(Duration::from_secs(/*secs*/ 15)).await;
+            }
+        }));
     }
-    items.push(RenderableItem::Borrowed(&widget.bottom_pane));
-    ColumnRenderable::with(items)
+
+    pub(crate) fn set_status_header_git_status(
+        &mut self,
+        cwd: PathBuf,
+        summary: Option<crate::git_status::GitStatusSummary>,
+    ) {
+        if self.status_line_cwd() != cwd.as_path() {
+            return;
+        }
+        self.status_header_git_status_cwd = Some(cwd);
+        self.status_header_git_status = summary;
+        self.request_redraw();
+    }
+
+    pub(super) fn stop_status_header_git_status_poller(&mut self) {
+        if let Some(task) = self.status_header_git_status_task.take() {
+            task.abort();
+        }
+    }
 }
 
 struct StatusHeaderBar {
     model_name: Option<String>,
     account_label: Option<String>,
     directories: Vec<PathBuf>,
-    git_status: Option<GitStatusSummary>,
+    git_status: Option<crate::git_status::GitStatusSummary>,
     rate_limit_summary: Option<String>,
 }
 
@@ -91,22 +102,16 @@ impl Renderable for StatusHeaderBar {
 }
 
 impl StatusHeaderBar {
-    fn new(
-        model_name: &str,
-        reasoning_effort: Option<ReasoningEffortConfig>,
-        account_display: Option<&StatusAccountDisplay>,
-        plan_type: Option<PlanType>,
-        has_chatgpt_account: bool,
-        command_cwd: Option<&Path>,
-        git_status: Option<GitStatusSummary>,
-        rate_limit_snapshot: Option<&RateLimitSnapshotDisplay>,
-    ) -> Self {
+    fn new(widget: &ChatWidget) -> Self {
+        let model_name = widget.model_display_name();
         let model_name = (!model_name.trim().is_empty())
-            .then(|| format_model_label(model_name, reasoning_effort));
+            .then(|| format_model_label(model_name, widget.effective_reasoning_effort()));
         let mut directories = Vec::new();
-        if let Some(command_cwd) = command_cwd {
-            push_directory_context(&mut directories, command_cwd);
-        }
+        push_directory_context(&mut directories, widget.status_line_cwd());
+        let rate_limit_snapshot = widget
+            .rate_limit_snapshots_by_limit_id
+            .get("codex")
+            .or_else(|| widget.rate_limit_snapshots_by_limit_id.values().next());
         let rate_limit_summary = rate_limit_snapshot.and_then(|snapshot| {
             snapshot.primary.as_ref().map(|primary| {
                 let remaining = (100.0 - primary.used_percent).clamp(0.0, 100.0).round() as i64;
@@ -121,12 +126,12 @@ impl StatusHeaderBar {
         Self {
             model_name,
             account_label: status_header_account_label(
-                account_display,
-                plan_type,
-                has_chatgpt_account,
+                widget.status_account_display(),
+                widget.current_plan_type(),
+                widget.has_chatgpt_account(),
             ),
             directories,
-            git_status,
+            git_status: widget.status_header_git_status.clone(),
             rate_limit_summary,
         }
     }
@@ -168,12 +173,12 @@ impl StatusHeaderBar {
         }
 
         if !directories.is_empty() {
-            let mut segment = vec![" ".yellow()];
+            let mut segment = vec![" ".magenta()];
             for (idx, path) in directories.iter().enumerate() {
                 if idx > 0 {
                     segment.push(" ".dim());
                 }
-                segment.push(Span::from(path.clone()).yellow());
+                segment.push(Span::from(path.clone()).magenta());
             }
             push_segment(segment);
         }
@@ -190,7 +195,7 @@ impl StatusHeaderBar {
             }
             let changed = git_status.changed;
             if changed > 0 {
-                segment.push(format!(" +{changed}").yellow());
+                segment.push(format!(" +{changed}").magenta());
             }
             let untracked = git_status.untracked;
             if untracked > 0 {

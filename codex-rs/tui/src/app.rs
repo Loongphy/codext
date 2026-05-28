@@ -541,6 +541,7 @@ pub(crate) struct App {
 
     thread_event_channels: HashMap<ThreadId, ThreadEventChannel>,
     thread_event_listener_tasks: HashMap<ThreadId, JoinHandle<()>>,
+    rate_limit_poll_task: Option<JoinHandle<()>>,
     agent_navigation: AgentNavigationState,
     side_threads: HashMap<ThreadId, SideThreadState>,
     active_thread_id: Option<ThreadId>,
@@ -997,6 +998,7 @@ See the Codex keymap documentation for supported actions and examples."
             windows_sandbox: WindowsSandboxState::default(),
             thread_event_channels: HashMap::new(),
             thread_event_listener_tasks: HashMap::new(),
+            rate_limit_poll_task: None,
             agent_navigation: AgentNavigationState::default(),
             side_threads: HashMap::new(),
             active_thread_id: None,
@@ -1072,6 +1074,7 @@ See the Codex keymap documentation for supported actions and examples."
         // already has data, without delaying the initial frame render.
         if requires_openai_auth && has_chatgpt_account {
             app.refresh_rate_limits(&app_server, RateLimitRefreshOrigin::StartupPrefetch);
+            app.start_rate_limit_polling(&app_server);
         }
 
         let mut listen_for_app_server_events = true;
@@ -1326,6 +1329,9 @@ See the Codex keymap documentation for supported actions and examples."
 
 impl Drop for App {
     fn drop(&mut self) {
+        if let Some(task) = self.rate_limit_poll_task.take() {
+            task.abort();
+        }
         if let Err(err) = self.chat_widget.clear_managed_terminal_title() {
             tracing::debug!(error = %err, "failed to clear terminal title on app drop");
         }

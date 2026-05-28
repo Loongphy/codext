@@ -2,6 +2,8 @@
 source: tui/src/chatwidget/tests/popups_and_settings.rs
 expression: popup
 ---
+   gpt-5.2 xhigh │  /tmp/project
+
   Select Reasoning Level for gpt-5.2
 
   1. Low                   Balances speed with some reasoning; useful for

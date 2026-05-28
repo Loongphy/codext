@@ -2,6 +2,8 @@
 source: tui/src/chatwidget/tests/popups_and_settings.rs
 expression: strip_osc8_for_snapshot(&popup)
 ---
+   gpt-5.5 default │  /tmp/project │ API key
+
   Plugins
   Figma · Installed · ChatGPT Marketplace
   Turn Figma files into implementation context.

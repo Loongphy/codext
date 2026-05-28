@@ -2,6 +2,8 @@
 source: tui/src/chatwidget/tests/permissions.rs
 expression: popup
 ---
+   gpt-5.5 default │  /tmp/project │ API key
+
   Enable full access?
   When Codex runs with full access, it can edit any file on your computer and
   run commands with network, without your approval. Exercise caution when

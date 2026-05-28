@@ -7,7 +7,7 @@ expression: normalize_snapshot_paths(term.backend().vt100().screen().contents())
 
 ⚠ MCP client for `alpha` failed to start: handshake failed
 ⚠ MCP startup incomplete (failed: alpha)
-
+   gpt-5.5 default │  /tmp/project │ API key
 
 › Ask Codex to do anything
 

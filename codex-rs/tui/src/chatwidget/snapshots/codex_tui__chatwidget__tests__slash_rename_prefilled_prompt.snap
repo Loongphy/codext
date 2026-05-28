@@ -1,8 +1,8 @@
 ---
 source: tui/src/chatwidget/tests/slash_commands.rs
-assertion_line: 135
 expression: popup
 ---
+   gpt-5.5 default │  /tmp/project │ API key
 ▌ Rename thread
 ▌
 ▌ Current project title

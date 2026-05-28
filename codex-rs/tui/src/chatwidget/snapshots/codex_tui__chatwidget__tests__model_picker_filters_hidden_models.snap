@@ -2,6 +2,8 @@
 source: tui/src/chatwidget/tests/popups_and_settings.rs
 expression: popup
 ---
+   test-visible-model default │  /tmp/project │ API key
+
   Select Model and Effort
   Access legacy models by running codex -m <model_name> or in your config.toml
 

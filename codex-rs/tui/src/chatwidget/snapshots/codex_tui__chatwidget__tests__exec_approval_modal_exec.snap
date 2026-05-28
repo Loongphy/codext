@@ -1,12 +1,11 @@
 ---
 source: tui/src/chatwidget/tests/exec_flow.rs
-assertion_line: 40
 expression: "format!(\"{buf:?}\")"
 ---
 Buffer {
     area: Rect { x: 0, y: 0, width: 80, height: 13 },
     content: [
-        "                                                                                ",
+        "   gpt-5.5 default │  /tmp/project │ API key                                  ",
         "                                                                                ",
         "  Would you like to run the following command?                                  ",
         "                                                                                ",
@@ -22,6 +21,12 @@ Buffer {
     ],
     styles: [
         x: 0, y: 0, fg: Reset, bg: Reset, underline: Reset, modifier: NONE,
+        x: 2, y: 0, fg: Cyan, bg: Reset, underline: Reset, modifier: NONE,
+        x: 19, y: 0, fg: Reset, bg: Reset, underline: Reset, modifier: DIM,
+        x: 22, y: 0, fg: Magenta, bg: Reset, underline: Reset, modifier: NONE,
+        x: 36, y: 0, fg: Reset, bg: Reset, underline: Reset, modifier: DIM,
+        x: 39, y: 0, fg: Cyan, bg: Reset, underline: Reset, modifier: NONE,
+        x: 46, y: 0, fg: Reset, bg: Reset, underline: Reset, modifier: NONE,
         x: 2, y: 2, fg: Reset, bg: Reset, underline: Reset, modifier: BOLD,
         x: 46, y: 2, fg: Reset, bg: Reset, underline: Reset, modifier: NONE,
         x: 10, y: 4, fg: Reset, bg: Reset, underline: Reset, modifier: ITALIC,

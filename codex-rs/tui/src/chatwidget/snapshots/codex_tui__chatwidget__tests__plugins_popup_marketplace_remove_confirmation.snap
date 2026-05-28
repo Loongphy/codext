@@ -1,8 +1,9 @@
 ---
 source: tui/src/chatwidget/tests/popups_and_settings.rs
-assertion_line: 411
 expression: confirmation
 ---
+   gpt-5.5 default │  /tmp/project │ API key
+
   Plugins
   Remove Repo Marketplace marketplace?
   This removes the configured marketplace from Codex.

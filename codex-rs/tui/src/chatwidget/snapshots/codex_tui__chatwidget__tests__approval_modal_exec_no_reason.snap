@@ -2,7 +2,7 @@
 source: tui/src/chatwidget/tests/exec_flow.rs
 expression: terminal.backend().vt100().screen().contents()
 ---
-
+   gpt-5.5 default │  /tmp/project │ API key
 
   Would you like to run the following command?
 

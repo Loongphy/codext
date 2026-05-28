@@ -1,8 +1,9 @@
 ---
 source: tui/src/chatwidget/tests/popups_and_settings.rs
-assertion_line: 339
 expression: popup
 ---
+   gpt-5.5 default │  /tmp/project │ API key
+
   Plugins
   Debug Marketplace installed successfully.
   Select the plugins you want to use and press Enter to install or view details.

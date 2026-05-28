@@ -2,7 +2,7 @@
 source: tui/src/chatwidget/tests/status_and_layout.rs
 expression: normalized_backend_snapshot(terminal.backend())
 ---
-"                                                                                "
+"   gpt-5.3-codex high │  /tmp/project │ API key                               "
 "                                                                                "
 "› Ask Codex to do anything                                                      "
 "                                                                                "

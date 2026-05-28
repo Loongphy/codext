@@ -1186,28 +1186,6 @@ pub(super) async fn assert_shift_left_edits_most_recent_queued_message_for_termi
     );
 }
 
-pub(super) fn render_bottom_first_row(chat: &ChatWidget, width: u16) -> String {
-    let height = chat.desired_height(width);
-    let area = Rect::new(0, 0, width, height);
-    let mut buf = Buffer::empty(area);
-    chat.render(area, &mut buf);
-    for y in 0..area.height {
-        let mut row = String::new();
-        for x in 0..area.width {
-            let s = buf[(x, y)].symbol();
-            if s.is_empty() {
-                row.push(' ');
-            } else {
-                row.push_str(s);
-            }
-        }
-        if !row.trim().is_empty() {
-            return row;
-        }
-    }
-    String::new()
-}
-
 pub(super) fn render_bottom_popup(chat: &ChatWidget, width: u16) -> String {
     let height = chat.desired_height(width);
     let area = Rect::new(0, 0, width, height);

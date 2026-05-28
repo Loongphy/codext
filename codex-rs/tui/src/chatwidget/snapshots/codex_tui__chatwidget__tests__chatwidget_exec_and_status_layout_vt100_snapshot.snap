@@ -35,7 +35,7 @@ expression: normalize_snapshot_paths(term.backend().vt100().screen().contents())
 • Explored
   └ Search Change Approved
     Read diff_render.rs
-
+   gpt-5.5 default │  /tmp/project │ API key
 • Investigating rendering code (0s • esc to interrupt)
 
 

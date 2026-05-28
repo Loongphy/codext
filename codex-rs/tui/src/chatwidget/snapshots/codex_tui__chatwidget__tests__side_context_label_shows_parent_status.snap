@@ -2,7 +2,7 @@
 source: tui/src/chatwidget/tests/side.rs
 expression: terminal.backend()
 ---
-"                                                                                "
+"   gpt-5.5 default │  /tmp/project │ API key                                  "
 "                                                                                "
 "› Check recently modified functions for compatibility                           "
 "                                                                                "

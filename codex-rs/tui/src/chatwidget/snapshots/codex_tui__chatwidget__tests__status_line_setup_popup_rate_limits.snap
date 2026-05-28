@@ -2,6 +2,8 @@
 source: tui/src/chatwidget/tests/status_surface_previews.rs
 expression: status_line_popup_snapshot(&mut chat)
 ---
+   gpt-5.5 default │  /tmp/project │  65% │ API key
+
   Configure Status Line
   Select which items to display in the status line.
 

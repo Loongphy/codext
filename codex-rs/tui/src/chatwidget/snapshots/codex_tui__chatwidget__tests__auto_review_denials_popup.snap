@@ -2,6 +2,8 @@
 source: tui/src/chatwidget/tests/guardian.rs
 expression: popup
 ---
+   gpt-5.5 default │  /tmp/project │ API key
+
   Auto-review Denials
   Select a denied action to approve.
 

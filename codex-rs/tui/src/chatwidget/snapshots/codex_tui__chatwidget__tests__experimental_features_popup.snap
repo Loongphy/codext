@@ -2,6 +2,8 @@
 source: tui/src/chatwidget/tests/popups_and_settings.rs
 expression: popup
 ---
+   gpt-5.5 default │  /tmp/project │ API key
+
   Experimental features
   Toggle experimental features. Changes are saved to config.toml.
 

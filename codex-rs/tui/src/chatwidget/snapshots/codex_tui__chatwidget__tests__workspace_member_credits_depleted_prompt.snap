@@ -2,6 +2,8 @@
 source: tui/src/chatwidget/tests/status_and_layout.rs
 expression: popup
 ---
+   gpt-5.5 default │  /tmp/project │  0% │ API key
+
   You've reached your workspace credit limit
   Your workspace is out of credits. Ask your workspace owner to add more. Notify owner?
 

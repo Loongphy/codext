@@ -738,7 +738,8 @@ impl App {
                         self.chat_widget.on_rate_limit_snapshot(Some(snapshot));
                     }
                     match origin {
-                        RateLimitRefreshOrigin::StartupPrefetch => {
+                        RateLimitRefreshOrigin::StartupPrefetch
+                        | RateLimitRefreshOrigin::BackgroundPoll => {
                             tui.frame_requester().schedule_frame();
                         }
                         RateLimitRefreshOrigin::StatusCommand { request_id } => {
@@ -1960,6 +1961,10 @@ impl App {
             AppEvent::StatusLineGitSummaryUpdated { cwd, summary } => {
                 self.chat_widget.set_status_line_git_summary(cwd, summary);
                 self.refresh_status_line();
+            }
+            AppEvent::StatusHeaderGitStatusUpdated { cwd, summary } => {
+                self.chat_widget.set_status_header_git_status(cwd, summary);
+                tui.frame_requester().schedule_frame();
             }
             AppEvent::StatusLineSetupCancelled => {
                 self.chat_widget.cancel_status_line_setup();

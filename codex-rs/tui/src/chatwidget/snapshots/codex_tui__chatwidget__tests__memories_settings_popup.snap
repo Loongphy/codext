@@ -2,6 +2,8 @@
 source: tui/src/chatwidget/tests/popups_and_settings.rs
 expression: popup
 ---
+   gpt-5.5 default │  /tmp/project │ API key
+
   Memories
   Choose how Codex uses and creates memories. Changes are saved to config.toml
 

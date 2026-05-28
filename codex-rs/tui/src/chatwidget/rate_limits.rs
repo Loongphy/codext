@@ -222,8 +222,11 @@ impl ChatWidget {
                 .map(|credits| credits.has_credits)
                 .unwrap_or(false);
             let should_resume_paused_queue = is_codex_limit
+                && !Self::rate_limit_snapshot_has_exhausted_quota(&snapshot)
                 && self.input_queue.suppress_queue_autosend
                 && Self::rate_limit_snapshot_has_available_quota(&snapshot);
+            let should_pause_queue =
+                is_codex_limit && Self::rate_limit_snapshot_has_exhausted_quota(&snapshot);
 
             if high_usage
                 && !has_workspace_credits
@@ -248,7 +251,12 @@ impl ChatWidget {
                 }
                 self.request_redraw();
             }
-            if should_resume_paused_queue {
+            if should_pause_queue {
+                self.input_queue.suppress_queue_autosend = true;
+                self.bottom_pane
+                    .set_queue_submissions(/*queue_submissions*/ true);
+                self.request_redraw();
+            } else if should_resume_paused_queue {
                 self.input_queue.suppress_queue_autosend = false;
                 self.bottom_pane
                     .set_queue_submissions(/*queue_submissions*/ false);
@@ -269,6 +277,18 @@ impl ChatWidget {
     }
 
     fn rate_limit_snapshot_has_available_quota(snapshot: &RateLimitSnapshot) -> bool {
+        if Self::rate_limit_snapshot_has_exhausted_quota(snapshot) {
+            return false;
+        }
+
+        if snapshot
+            .credits
+            .as_ref()
+            .is_some_and(|credits| credits.has_credits || credits.unlimited)
+        {
+            return true;
+        }
+
         let windows = [snapshot.primary.as_ref(), snapshot.secondary.as_ref()];
         let mut saw_window = false;
         for window in windows.into_iter().flatten() {
@@ -278,6 +298,34 @@ impl ChatWidget {
             }
         }
         saw_window
+    }
+
+    fn rate_limit_snapshot_has_exhausted_quota(snapshot: &RateLimitSnapshot) -> bool {
+        if snapshot
+            .credits
+            .as_ref()
+            .is_some_and(|credits| !credits.has_credits && !credits.unlimited)
+        {
+            return true;
+        }
+
+        if matches!(
+            snapshot.rate_limit_reached_type,
+            Some(
+                RateLimitReachedType::RateLimitReached
+                    | RateLimitReachedType::WorkspaceOwnerCreditsDepleted
+                    | RateLimitReachedType::WorkspaceMemberCreditsDepleted
+                    | RateLimitReachedType::WorkspaceOwnerUsageLimitReached
+                    | RateLimitReachedType::WorkspaceMemberUsageLimitReached
+            )
+        ) {
+            return true;
+        }
+
+        [snapshot.primary.as_ref(), snapshot.secondary.as_ref()]
+            .into_iter()
+            .flatten()
+            .any(|window| window.used_percent >= 100)
     }
 
     #[cfg_attr(not(test), allow(dead_code))]

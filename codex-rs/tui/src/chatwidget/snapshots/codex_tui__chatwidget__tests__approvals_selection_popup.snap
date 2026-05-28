@@ -2,6 +2,8 @@
 source: tui/src/chatwidget/tests/permissions.rs
 expression: popup
 ---
+   gpt-5.5 default │  /tmp/project │ API key
+
   Update Model Permissions
 
 › 1. Default      Codex can read and edit files in the current workspace, and

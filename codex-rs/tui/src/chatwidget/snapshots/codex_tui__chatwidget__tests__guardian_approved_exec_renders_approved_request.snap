@@ -9,7 +9,7 @@ expression: normalize_snapshot_paths(term.backend().vt100().screen().contents())
 
 ✔ Auto-reviewer approved codex to run rm -f /tmp/guardian-approved.sqlite this
   time
-
+   gpt-5.5 default │  /tmp/project │ API key
 
 › Ask Codex to do anything
 

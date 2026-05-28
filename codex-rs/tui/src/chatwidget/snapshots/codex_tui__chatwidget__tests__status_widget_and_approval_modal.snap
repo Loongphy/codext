@@ -2,7 +2,7 @@
 source: tui/src/chatwidget/tests/status_and_layout.rs
 expression: normalized_backend_snapshot(terminal.backend())
 ---
-"                                                                                                    "
+"   gpt-5.5 default │  /tmp/project │ API key                                                      "
 "                                                                                                    "
 "  Would you like to run the following command?                                                      "
 "                                                                                                    "

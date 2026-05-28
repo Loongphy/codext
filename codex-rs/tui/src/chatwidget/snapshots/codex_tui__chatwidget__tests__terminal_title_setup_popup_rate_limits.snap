@@ -2,6 +2,8 @@
 source: tui/src/chatwidget/tests/status_surface_previews.rs
 expression: terminal_title_popup_snapshot(&mut chat)
 ---
+   gpt-5.5 default │  /tmp/project │  65% │ API key
+
   Configure Terminal Title
   Select which items to display in the terminal title.
 

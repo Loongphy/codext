@@ -213,6 +213,9 @@ impl ChatWidget {
             status_line_git_summary_cwd: None,
             status_line_git_summary_pending: false,
             status_line_git_summary_lookup_complete: false,
+            status_header_git_status: None,
+            status_header_git_status_cwd: None,
+            status_header_git_status_task: None,
             current_goal_status_indicator: None,
             current_goal_status: None,
             external_editor_state: ExternalEditorState::Closed,
@@ -222,6 +225,7 @@ impl ChatWidget {
         };
 
         widget.prefetch_rate_limits();
+        widget.sync_status_header_git_status_poller();
         if let Some(keymap) = runtime_keymap {
             widget.bottom_pane.set_keymap_bindings(&keymap);
         }

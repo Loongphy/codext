@@ -2,6 +2,8 @@
 source: tui/src/chatwidget/tests/plan_mode.rs
 expression: popup
 ---
+   gpt-5 default │  /tmp/project │ API key
+
   Implement this plan?
 
   1. Yes, implement this plan          Switch to Default and start coding.
