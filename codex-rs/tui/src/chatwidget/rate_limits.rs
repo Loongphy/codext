@@ -234,12 +234,11 @@ impl ChatWidget {
                 self.rate_limit_switch_prompt = RateLimitSwitchPromptState::Pending;
             }
 
-            let should_resume_paused_queue = is_codex_limit
-                && !Self::rate_limit_snapshot_has_exhausted_quota(&snapshot)
-                && self.input_queue.suppress_queue_autosend
-                && Self::rate_limit_snapshot_has_available_quota(&snapshot);
-            let should_pause_queue =
-                is_codex_limit && Self::rate_limit_snapshot_has_exhausted_quota(&snapshot);
+            let has_exhausted_quota = Self::rate_limit_snapshot_has_exhausted_quota(&snapshot);
+            let has_available_quota = Self::rate_limit_snapshot_has_available_quota(&snapshot);
+            let should_resume_paused_queue =
+                is_codex_limit && !has_exhausted_quota && has_available_quota;
+            let should_pause_queue = is_codex_limit && has_exhausted_quota;
 
             let display =
                 rate_limit_snapshot_display_for_limit(&snapshot, limit_label, Local::now());
@@ -258,13 +257,17 @@ impl ChatWidget {
                     .set_queue_submissions(/*queue_submissions*/ true);
                 self.request_redraw();
             } else if should_resume_paused_queue {
+                let was_suppressing_queue_autosend = self.input_queue.suppress_queue_autosend;
+                self.codex_rate_limit_reached_type = None;
                 self.input_queue.suppress_queue_autosend = false;
                 self.bottom_pane
                     .set_queue_submissions(/*queue_submissions*/ false);
-                if self.has_queued_follow_up_messages() {
+                if was_suppressing_queue_autosend && self.has_queued_follow_up_messages() {
                     self.clear_pending_usage_limit_resume_turn();
                 }
-                self.maybe_send_next_queued_input();
+                if was_suppressing_queue_autosend {
+                    self.maybe_send_next_queued_input();
+                }
             }
         } else {
             self.rate_limit_snapshots_by_limit_id.clear();
@@ -300,14 +303,6 @@ impl ChatWidget {
     }
 
     fn rate_limit_snapshot_has_exhausted_quota(snapshot: &RateLimitSnapshot) -> bool {
-        if snapshot
-            .credits
-            .as_ref()
-            .is_some_and(|credits| !credits.has_credits && !credits.unlimited)
-        {
-            return true;
-        }
-
         if matches!(
             snapshot.rate_limit_reached_type,
             Some(
