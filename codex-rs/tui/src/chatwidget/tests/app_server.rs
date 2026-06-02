@@ -1,6 +1,14 @@
 use super::*;
 use pretty_assertions::assert_eq;
 
+#[derive(Debug, PartialEq, Eq)]
+enum PromptQueueTrace {
+    ClientTurnStart(String),
+    ServerTurnCompletedUsageLimit,
+    UserQueue(String),
+    ServerRateLimitRestored,
+}
+
 fn thread_settings_for_test(
     model: &str,
     thread_id: ThreadId,
@@ -58,6 +66,114 @@ fn configured_thread_session(thread_id: ThreadId) -> crate::session_state::Threa
         network_proxy: None,
         rollout_path: None,
     }
+}
+
+fn submit_composer_text(chat: &mut ChatWidget, text: &str) {
+    chat.bottom_pane
+        .set_composer_text(text.to_string(), Vec::new(), Vec::new());
+    chat.handle_key_event(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+}
+
+fn queue_composer_text_with_tab(chat: &mut ChatWidget, text: &str) {
+    chat.bottom_pane
+        .set_composer_text(text.to_string(), Vec::new(), Vec::new());
+    chat.handle_key_event(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
+}
+
+fn next_client_turn_start(
+    op_rx: &mut tokio::sync::mpsc::UnboundedReceiver<Op>,
+) -> PromptQueueTrace {
+    let Op::UserTurn { items, .. } = next_submit_op(op_rx) else {
+        unreachable!("next_submit_op only returns user turns");
+    };
+    let [UserInput::Text { text, .. }] = items.as_slice() else {
+        panic!("expected text-only turn/start input, got {items:?}");
+    };
+    PromptQueueTrace::ClientTurnStart(text.clone())
+}
+
+fn usage_limit_completed_notification(chat: &ChatWidget, turn_id: &str) -> ServerNotification {
+    ServerNotification::TurnCompleted(TurnCompletedNotification {
+        thread_id: chat.thread_id.map(|id| id.to_string()).unwrap_or_default(),
+        turn: app_server_turn(
+            turn_id,
+            AppServerTurnStatus::Failed,
+            /*duration_ms*/ None,
+            Some(AppServerTurnError {
+                message: "Usage limit reached.".to_string(),
+                codex_error_info: Some(CodexErrorInfo::UsageLimitExceeded),
+                additional_details: None,
+            }),
+        ),
+    })
+}
+
+fn restored_rate_limit_snapshot() -> RateLimitSnapshot {
+    RateLimitSnapshot {
+        limit_id: Some("codex".to_string()),
+        limit_name: Some("codex".to_string()),
+        primary: Some(RateLimitWindow {
+            used_percent: 20,
+            window_duration_mins: Some(5 * 60),
+            resets_at: None,
+        }),
+        secondary: None,
+        credits: None,
+        plan_type: None,
+        rate_limit_reached_type: None,
+    }
+}
+
+#[tokio::test]
+async fn usage_limit_pauses_prompt_queue_until_rate_limit_recovers() {
+    let (mut chat, mut rx, mut op_rx) = make_chatwidget_manual(/*model_override*/ None).await;
+    chat.handle_thread_session(configured_thread_session(ThreadId::new()));
+    let _ = drain_insert_history(&mut rx);
+
+    let mut trace = Vec::new();
+
+    submit_composer_text(&mut chat, "initial prompt");
+    trace.push(next_client_turn_start(&mut op_rx));
+
+    handle_turn_started(&mut chat, "turn-initial");
+    chat.handle_server_notification(
+        usage_limit_completed_notification(&chat, "turn-initial"),
+        /*replay_kind*/ None,
+    );
+    trace.push(PromptQueueTrace::ServerTurnCompletedUsageLimit);
+
+    queue_composer_text_with_tab(&mut chat, "follow up 1");
+    trace.push(PromptQueueTrace::UserQueue("follow up 1".to_string()));
+    queue_composer_text_with_tab(&mut chat, "follow up 2");
+    trace.push(PromptQueueTrace::UserQueue("follow up 2".to_string()));
+
+    assert_no_submit_op(&mut op_rx);
+
+    chat.on_rate_limit_snapshot(Some(restored_rate_limit_snapshot()));
+    trace.push(PromptQueueTrace::ServerRateLimitRestored);
+    trace.push(next_client_turn_start(&mut op_rx));
+
+    assert_no_submit_op(&mut op_rx);
+
+    assert_eq!(
+        trace,
+        vec![
+            PromptQueueTrace::ClientTurnStart("initial prompt".to_string()),
+            PromptQueueTrace::ServerTurnCompletedUsageLimit,
+            PromptQueueTrace::UserQueue("follow up 1".to_string()),
+            PromptQueueTrace::UserQueue("follow up 2".to_string()),
+            PromptQueueTrace::ServerRateLimitRestored,
+            PromptQueueTrace::ClientTurnStart("follow up 1".to_string()),
+        ]
+    );
+    assert_eq!(chat.queued_user_message_texts(), vec!["follow up 2"]);
+
+    handle_turn_started(&mut chat, "turn-follow-up-1");
+    handle_turn_completed(&mut chat, "turn-follow-up-1", /*duration_ms*/ None);
+    assert_eq!(
+        next_client_turn_start(&mut op_rx),
+        PromptQueueTrace::ClientTurnStart("follow up 2".to_string())
+    );
 }
 
 #[tokio::test]
