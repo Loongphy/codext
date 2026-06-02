@@ -1,8 +1,8 @@
 #!/usr/bin/env node
-// Unified entry point for the Codex CLI.
+// Unified entry point for the Codext CLI.
 
 import { spawn } from "node:child_process";
-import { existsSync, realpathSync } from "fs";
+import { chmodSync, existsSync, statSync } from "fs";
 import { createRequire } from "node:module";
 import path from "path";
 import { fileURLToPath } from "url";
@@ -13,12 +13,11 @@ const __dirname = path.dirname(__filename);
 const require = createRequire(import.meta.url);
 
 const PLATFORM_PACKAGE_BY_TARGET = {
-  "x86_64-unknown-linux-musl": "@openai/codex-linux-x64",
-  "aarch64-unknown-linux-musl": "@openai/codex-linux-arm64",
-  "x86_64-apple-darwin": "@openai/codex-darwin-x64",
-  "aarch64-apple-darwin": "@openai/codex-darwin-arm64",
-  "x86_64-pc-windows-msvc": "@openai/codex-win32-x64",
-  "aarch64-pc-windows-msvc": "@openai/codex-win32-arm64",
+  "x86_64-unknown-linux-musl": "@loongphy/codext-linux-x64",
+  "aarch64-unknown-linux-musl": "@loongphy/codext-linux-arm64",
+  "x86_64-apple-darwin": "@loongphy/codext-darwin-x64",
+  "aarch64-apple-darwin": "@loongphy/codext-darwin-arm64",
+  "x86_64-pc-windows-msvc": "@loongphy/codext-win32-x64",
 };
 
 const { platform, arch } = process;
@@ -55,9 +54,6 @@ switch (platform) {
       case "x64":
         targetTriple = "x86_64-pc-windows-msvc";
         break;
-      case "arm64":
-        targetTriple = "aarch64-pc-windows-msvc";
-        break;
       default:
         break;
     }
@@ -77,54 +73,58 @@ if (!platformPackage) {
 
 const codexBinaryName = process.platform === "win32" ? "codex.exe" : "codex";
 const localVendorRoot = path.join(__dirname, "..", "vendor");
-const packageBinaryPath = (vendorRoot) =>
-  path.join(vendorRoot, targetTriple, "bin", codexBinaryName);
-const legacyBinaryPath = (vendorRoot) =>
-  path.join(vendorRoot, targetTriple, "codex", codexBinaryName);
+const localBinaryPath = path.join(
+  localVendorRoot,
+  targetTriple,
+  "codex",
+  codexBinaryName,
+);
 
-function resolveNativePackage(vendorRoot) {
-  const packageRoot = path.join(vendorRoot, targetTriple);
-  const binaryPath = packageBinaryPath(vendorRoot);
-  if (existsSync(binaryPath)) {
-    return {
-      binaryPath,
-      pathDir: path.join(packageRoot, "codex-path"),
-    };
-  }
-
-  const legacyPath = legacyBinaryPath(vendorRoot);
-  if (existsSync(legacyPath)) {
-    return {
-      binaryPath: legacyPath,
-      pathDir: path.join(packageRoot, "path"),
-    };
-  }
-
-  return null;
-}
-
-let nativePackage;
+let vendorRoot;
 try {
   const packageJsonPath = require.resolve(`${platformPackage}/package.json`);
-  nativePackage = resolveNativePackage(
-    path.join(path.dirname(packageJsonPath), "vendor"),
-  );
+  vendorRoot = path.join(path.dirname(packageJsonPath), "vendor");
 } catch {
-  nativePackage = resolveNativePackage(localVendorRoot);
+  if (existsSync(localBinaryPath)) {
+    vendorRoot = localVendorRoot;
+  } else {
+    const packageManager = detectPackageManager();
+    const updateCommand =
+      packageManager === "bun"
+        ? "bun install -g @loongphy/codext@latest"
+        : "npm install -g @loongphy/codext@latest";
+    throw new Error(
+      `Missing optional dependency ${platformPackage}. Reinstall Codext: ${updateCommand}`,
+    );
+  }
 }
 
-if (!nativePackage) {
+if (!vendorRoot) {
   const packageManager = detectPackageManager();
   const updateCommand =
     packageManager === "bun"
-      ? "bun install -g @openai/codex@latest"
-      : "npm install -g @openai/codex@latest";
+      ? "bun install -g @loongphy/codext@latest"
+      : "npm install -g @loongphy/codext@latest";
   throw new Error(
-    `Missing optional dependency ${platformPackage}. Reinstall Codex: ${updateCommand}`,
+    `Missing optional dependency ${platformPackage}. Reinstall Codext: ${updateCommand}`,
   );
 }
 
-const { binaryPath, pathDir } = nativePackage;
+const archRoot = path.join(vendorRoot, targetTriple);
+const binaryPath = path.join(archRoot, "codex", codexBinaryName);
+
+function ensureExecutable(filePath) {
+  if (process.platform === "win32" || !existsSync(filePath)) {
+    return;
+  }
+
+  const currentMode = statSync(filePath).mode;
+  if ((currentMode & 0o111) !== 0) {
+    return;
+  }
+
+  chmodSync(filePath, currentMode | 0o111);
+}
 
 // Use an asynchronous spawn instead of spawnSync so that Node is able to
 // respond to signals (e.g. Ctrl-C / SIGINT) while the native binary is
@@ -143,7 +143,7 @@ function getUpdatedPath(newDirs) {
 }
 
 /**
- * Use heuristics to detect the package manager that was used to install Codex
+ * Use heuristics to detect the package manager that was used to install Codext
  * in order to give the user a hint about how to update it.
  */
 function detectPackageManager() {
@@ -168,6 +168,7 @@ function detectPackageManager() {
 }
 
 const additionalDirs = [];
+const pathDir = path.join(archRoot, "path");
 if (existsSync(pathDir)) {
   additionalDirs.push(pathDir);
 }
@@ -179,7 +180,8 @@ const packageManagerEnvVar =
     ? "CODEX_MANAGED_BY_BUN"
     : "CODEX_MANAGED_BY_NPM";
 env[packageManagerEnvVar] = "1";
-env.CODEX_MANAGED_PACKAGE_ROOT = realpathSync(path.join(__dirname, ".."));
+
+ensureExecutable(binaryPath);
 
 const child = spawn(binaryPath, process.argv.slice(2), {
   stdio: "inherit",
