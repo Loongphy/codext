@@ -142,6 +142,14 @@ impl CodexThread {
         self.codex.shutdown_and_wait().await
     }
 
+    pub(crate) fn invalidate_model_transport_cache(&self) {
+        self.codex
+            .session
+            .services
+            .model_client
+            .invalidate_cached_transport_state();
+    }
+
     /// Wait until the underlying session loop has terminated.
     pub async fn wait_until_terminated(&self) {
         self.codex.session_loop_termination.clone().await;
