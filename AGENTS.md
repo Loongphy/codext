@@ -1,5 +1,25 @@
 # Rust/codex-rs
 
+<!-- codex-upstream-reapply:start -->
+## Temporary Reapply Guardrails (`rust-v0.137.0`)
+
+- Current work on this branch is an upstream reapply / re-implementation for `rust-v0.137.0`.
+- Only implementation code and necessary docs may change for this task. Do not add or modify tests or snapshot files.
+- Do not run lint / format / auto-fix commands for this reapply, including `cargo fmt`, `just fmt`, `cargo clippy`, `cargo clippy --fix`, and `just fix`.
+- Acceptance for this reapply is limited to the `codex-upstream-reapply` skill criteria, including `cd codex-rs && cargo build -p codex-cli` and `cd codex-rs && cargo build -p codex-cli --release`.
+<!-- codex-upstream-reapply:end -->
+
+
+
+
+
+
+
+
+
+
+
+
 In the codex-rs folder where the rust code lives:
 
 - Crate names are prefixed with `codex-`. For example, the `core` folder's crate is named `codex-core`
@@ -26,11 +46,10 @@ In the codex-rs folder where the rust code lives:
   - Implementations may still use `async fn foo(&self, ...) -> T` when they satisfy that contract.
   - Do not use `#[allow(async_fn_in_trait)]` as a shortcut around spelling the future contract explicitly.
 - When writing tests, prefer comparing the equality of entire objects over fields one by one.
-- Do not add general product or user-facing documentation to the `docs/` folder. The official Codex documentation lives elsewhere. The exception is app-server API documentation, which is covered by the app-server guidance below.
+- When making a change that adds or changes an API, ensure that the documentation in the `docs/` folder is up to date if applicable.
 - Prefer private modules and explicitly exported public crate API.
 - If you change `ConfigToml` or nested config types, run `just write-config-schema` to update `codex-rs/core/config.schema.json`.
 - When working with MCP tool calls, prefer using `codex-rs/codex-mcp/src/mcp_connection_manager.rs` to handle mutation of tools and tool calls. Aim to minimize the footprint of changes and leverage existing abstractions rather than plumbing code through multiple levels of function calls.
-- Do not call `reset_client_session` unnecessarily; let the incremental check logic decide whether to reuse the previous request.
 - If you change Rust dependencies (`Cargo.toml` or `Cargo.lock`), run `just bazel-lock-update` from the
   repo root to refresh `MODULE.bazel.lock`, and include that lockfile update in the same change.
 - After dependency changes, run `just bazel-lock-check` from the repo root so lockfile drift is caught
@@ -53,13 +72,12 @@ In the codex-rs folder where the rust code lives:
     the new implementation so the invariants stay close to the code that owns them.
   - Avoid adding new standalone methods to `codex-rs/tui/src/chatwidget.rs` unless the change is
     trivial; prefer new modules/files and keep `chatwidget.rs` focused on orchestration.
-- When running Rust commands (e.g. `just fix` or `just test`) be patient with the command and never try to kill them using the PID. Rust lock can make the execution slow, this is expected.
+- When running Rust commands (e.g. `just fix` or `cargo test`) be patient with the command and never try to kill them using the PID. Rust lock can make the execution slow, this is expected.
 
-Run `just fmt` (in the `codex-rs` directory) automatically after you have finished making code changes anywhere in this repository; do not ask for approval to run it. Additionally, run the tests:
+Run `just fmt` (in `codex-rs` directory) automatically after you have finished making Rust code changes; do not ask for approval to run it. Additionally, run the tests:
 
-1. Do not run `cargo test` directly. Use `just test` so test execution follows the repo defaults.
-2. Run the test for the specific project that was changed. For example, if changes were made in `codex-rs/tui`, run `just test -p codex-tui`.
-3. Once those pass, if any changes were made in common, core, or protocol, run the complete test suite with `just test`. Avoid `--all-features` for routine local runs because it expands the build matrix and can significantly increase `target/` disk usage; use it only when you specifically need full feature coverage. project-specific or individual tests can be run without asking the user, but do ask the user before running the complete test suite.
+1. Run the test for the specific project that was changed. For example, if changes were made in `codex-rs/tui`, run `cargo test -p codex-tui`.
+2. Once those pass, if any changes were made in common, core, or protocol, run the complete test suite with `cargo test` (or `just test` if `cargo-nextest` is installed). Avoid `--all-features` for routine local runs because it expands the build matrix and can significantly increase `target/` disk usage; use it only when you specifically need full feature coverage. project-specific or individual tests can be run without asking the user, but do ask the user before running the complete test suite.
 
 Before finalizing a large change to `codex-rs`, run `just fix -p <project>` (in `codex-rs` directory) to fix any linter issues in the code. Prefer scoping with `-p` to avoid slow workspace‑wide Clippy builds; only run `just fix` without `-p` if you changed shared crates. Do not re-run tests after running `fix` or `fmt`.
 
@@ -75,49 +93,6 @@ Particularly when introducing a new concept/feature/API, before adding to `codex
 - It is time to introduce a new crate to the Cargo workspace for your new functionality. Refactor existing code as necessary to make this happen.
 
 Likewise, when reviewing code, do not hesitate to push back on PRs that would unnecessarily add code to `codex-core`.
-
-## Code Review Rules
-
-### Model visible context
-
-Codex maintains a context (history of messages) that is sent to the model in inference requests.
-
-1. No history rewrite - the context must be built up incrementally.
-2. Avoid frequent changes to context that cause cache misses.
-3. No unbounded items - everything injected in the model context must have a bounded size and a hard cap.
-4. No items larger than 10K tokens.
-5. Highlight new individual items that can cross >1k tokens as P0. These need an additional manual review.
-6. All injected fragments must be defined as structs in `core/context` and implement ContextualUserFragment trait
-
-### Breaking changes
-
-Search for breaking changes in external integration surfaces:
-
-- app-server APIs
-- CLI parameters
-- configuration loading
-- resuming sessions from existing rollouts
-
-### Test authoring guidance
-
-For agent changes prefer integration tests over unit tests. Integration tests are under `core/suite` and use `test_codex` to set up a test instance of codex.
-
-Features that change the agent logic MUST add an integration test:
-
-- Provide a list of major logic changes and user-facing behaviors that need to be tested.
-
-If unit tests are needed, put them in a dedicated test file (\*\_tests.rs).
-Avoid test-only functions in the main implementation.
-
-Check whether there are existing helpers to make tests more streamlined and readable.
-
-### Change size guidance (800 lines)
-
-Unless the change is mechanical the total number of changed lines should not exceed 800 lines.
-For complex logic changes the size should be under 500 lines.
-
-If the change is larger, explore whether it can be split into reviewable stages and identify the smallest coherent stage to land first.
-Base the staging suggestion on the actual diff, dependencies, and affected call sites.
 
 ## TUI style conventions
 
@@ -153,19 +128,6 @@ See `codex-rs/tui/styles.md`.
 
 ## Tests
 
-### Test module organization
-
-- When adding a new test module, define its contents in a separate sibling file rather than inline in the implementation file.
-- Use an explicit `#[path = "..._tests.rs"]` attribute so the test filename is descriptive and easy to locate:
-
-  ```rust
-  #[cfg(test)]
-  #[path = "parser_tests.rs"]
-  mod tests;
-  ```
-
-- This applies only when introducing a new test module. Do not move or rewrite existing inline `#[cfg(test)] mod tests { ... }` modules solely to follow this convention.
-
 ### Snapshot tests
 
 This repo uses snapshot tests (via `insta`), especially in `codex-rs/tui`, to validate rendered output.
@@ -178,7 +140,7 @@ is easy to review and future diffs stay visual.
 When UI or text output changes intentionally, update the snapshots as follows:
 
 - Run tests to generate any updated snapshots:
-  - `just test -p codex-tui`
+  - `cargo test -p codex-tui`
 - Check what’s pending:
   - `cargo insta pending-snapshots -p codex-tui`
 - Review changes by reading the generated `*.snap.new` files directly in the repo, or preview a specific file:
@@ -188,7 +150,7 @@ When UI or text output changes intentionally, update the snapshots as follows:
 
 If you don’t have the tool:
 
-- `cargo install --locked cargo-insta`
+- `cargo install cargo-insta`
 
 ### Test assertions
 
@@ -268,19 +230,10 @@ These guidelines apply to app-server protocol work in `codex-rs`, especially:
 
 ### Development Workflow
 
-- Update app-server docs/examples when API behavior changes (at minimum `app-server/README.md`).
+- Update docs/examples when API behavior changes (at minimum `app-server/README.md`).
 - Regenerate schema fixtures when API shapes change:
   `just write-app-server-schema`
   (and `just write-app-server-schema --experimental` when experimental API fixtures are affected).
-- Validate with `just test -p codex-app-server-protocol`.
+- Validate with `cargo test -p codex-app-server-protocol`.
 - Avoid boilerplate tests that only assert experimental field markers for individual
   request fields in `common.rs`; rely on schema generation/tests and behavioral coverage instead.
-
-## Python Development Best Practices
-
-### Ignore Python 2 compatibility
-
-This project uses Python 3+. You should not use the `__future__` module.
-
-If you need to worry about feature compatibility between different 3.xx point releases, check the
-closest `pyproject.toml`'s `requires-python` field to see what minimum runtime version is supported.
