@@ -402,6 +402,10 @@ impl ModelClient {
         self.store_cached_websocket_session(WebsocketSession::default());
     }
 
+    pub(crate) fn invalidate_cached_transport_state(&self) {
+        self.store_cached_websocket_session(WebsocketSession::default());
+    }
+
     pub(crate) fn current_window_id(&self) -> String {
         let thread_id = self.state.thread_id;
         let window_generation = self.state.window_generation.load(Ordering::Relaxed);

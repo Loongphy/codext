@@ -384,6 +384,17 @@ impl TurnRequestProcessor {
         app_server_client_name: Option<String>,
         app_server_client_version: Option<String>,
     ) -> Result<TurnStartResponse, JSONRPCErrorError> {
+        reload_auth_from_storage_if_idle(
+            &self.auth_manager,
+            &self.thread_manager,
+            &self.config_manager,
+            &self.outgoing,
+            &self.thread_watch_manager,
+            &self.config.chatgpt_base_url,
+            "turn/start",
+        )
+        .await;
+
         if let Err(error) = Self::validate_v2_input_limit(&params.input) {
             self.track_error_response(
                 &request_id,
