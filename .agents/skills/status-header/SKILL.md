@@ -11,7 +11,10 @@ If multiple TUI surfaces render the same header (e.g. `codex-rs/tui` and `codex-
 
 ## Layout
 
-Header sits above the chat composer inside a `ColumnRenderable` in the bottom section.
+Header sits above the chat composer inside the bottom section, but below run-state/status indicator
+surfaces such as `Working`, unified exec footer, pending approvals, and queued-input previews.
+Do not wrap the entire bottom pane with the status header; inject the header into the bottom-pane
+composition immediately before the composer so active task state remains above it.
 
 - Top inset: `Insets::tlbr(1, LIVE_PREFIX_COLS, 1, 0)`
 - Left gutter: `LIVE_PREFIX_COLS` columns

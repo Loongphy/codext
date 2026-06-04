@@ -29,12 +29,11 @@ use codex_protocol::openai_models::ReasoningEffort as ReasoningEffortConfig;
 
 use super::*;
 
-pub(super) fn renderable(widget: &ChatWidget) -> Option<RenderableItem<'_>> {
+pub(super) fn renderable(widget: &ChatWidget) -> Option<RenderableItem<'static>> {
     let status_header = StatusHeaderBar::new(widget);
     if !status_header.has_content() {
         return None;
     }
-
     Some(
         RenderableItem::Owned(Box::new(status_header)).inset(Insets::tlbr(
             /*top*/ 1,
