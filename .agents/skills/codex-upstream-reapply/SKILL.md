@@ -209,6 +209,17 @@ cd codex-rs
 cargo build -p codex-cli --release
 ```
 
+### 9) Push and monitor
+
+完成 reapply 并提交后：
+
+- 推送当前 reapply 分支到 `origin`。
+- 同一提交强制推送到 `origin/main`。
+- 启动 `cargo build -p codex-cli --release`。
+- build 启动后约 40 分钟再检查一次构建结果，同时检查 `origin/main` 的 GitHub Actions 状态。
+- 如果本地 release build 或 `origin/main` GitHub Actions 存在问题，参考当前 upstream 对应代码与 CI 配置，比对后自动修复；修复提交后再次推送当前分支，并强制推送 `origin/main`。
+- 重复上述 build / CI 检查 / 修复 / 推送循环，直到本地 release build 完成且 `origin/main` GitHub Actions 没有需要处理的问题。
+
 ## How changes are computed from OLD_BRANCH
 
 默认用以下方式推断旧分支的“改动基线”：

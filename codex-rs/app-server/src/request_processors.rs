@@ -502,7 +502,7 @@ async fn handle_auth_reload_status(
                 info!(
                     "auth reloaded from storage before {reason}; invalidated model transport caches for {invalidated_thread_count} tracked thread(s)"
                 );
-                config_manager.replace_cloud_requirements_loader(
+                config_manager.replace_cloud_config_bundle_loader(
                     Arc::clone(auth_manager),
                     chatgpt_base_url.to_string(),
                 );
