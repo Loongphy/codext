@@ -1687,7 +1687,23 @@ impl BottomPane {
         area: Rect,
         composer_right_reserve: u16,
     ) -> Option<(u16, u16)> {
-        self.as_renderable_with_composer_right_reserve(composer_right_reserve)
+        self.cursor_pos_with_composer_right_reserve_and_header(
+            area,
+            composer_right_reserve,
+            /*composer_header*/ None,
+        )
+    }
+
+    pub(crate) fn cursor_pos_with_composer_right_reserve_and_header(
+        &self,
+        area: Rect,
+        composer_right_reserve: u16,
+        composer_header: Option<RenderableItem<'static>>,
+    ) -> Option<(u16, u16)> {
+        self.as_renderable_with_composer_right_reserve_and_header(
+            composer_right_reserve,
+            composer_header,
+        )
             .cursor_pos(area)
     }
 
@@ -1696,7 +1712,23 @@ impl BottomPane {
         area: Rect,
         composer_right_reserve: u16,
     ) -> crossterm::cursor::SetCursorStyle {
-        self.as_renderable_with_composer_right_reserve(composer_right_reserve)
+        self.cursor_style_with_composer_right_reserve_and_header(
+            area,
+            composer_right_reserve,
+            /*composer_header*/ None,
+        )
+    }
+
+    pub(crate) fn cursor_style_with_composer_right_reserve_and_header(
+        &self,
+        area: Rect,
+        composer_right_reserve: u16,
+        composer_header: Option<RenderableItem<'static>>,
+    ) -> crossterm::cursor::SetCursorStyle {
+        self.as_renderable_with_composer_right_reserve_and_header(
+            composer_right_reserve,
+            composer_header,
+        )
             .cursor_style(area)
     }
 

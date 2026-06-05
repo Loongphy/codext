@@ -69,13 +69,21 @@ impl Renderable for BottomPaneComposerReserveRenderable<'_> {
     fn cursor_pos(&self, area: Rect) -> Option<(u16, u16)> {
         self.chat_widget
             .bottom_pane
-            .cursor_pos_with_composer_right_reserve(area, self.right_reserve)
+            .cursor_pos_with_composer_right_reserve_and_header(
+                area,
+                self.right_reserve,
+                super::status_header::renderable(self.chat_widget),
+            )
     }
 
     fn cursor_style(&self, area: Rect) -> crossterm::cursor::SetCursorStyle {
         self.chat_widget
             .bottom_pane
-            .cursor_style_with_composer_right_reserve(area, self.right_reserve)
+            .cursor_style_with_composer_right_reserve_and_header(
+                area,
+                self.right_reserve,
+                super::status_header::renderable(self.chat_widget),
+            )
     }
 }
 
