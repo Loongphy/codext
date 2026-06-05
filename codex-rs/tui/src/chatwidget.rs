@@ -473,7 +473,8 @@ const APPROVE_FOR_ME_LABEL: &str = "Approve for me";
 const AUTO_REVIEW_DESCRIPTION: &str = "Only ask for actions detected as potentially unsafe.";
 const DEFAULT_OPENAI_BASE_URL: &str = "https://api.openai.com/v1";
 const DEFAULT_STATUS_LINE_ITEMS: [&str; 2] = ["model-with-reasoning", "current-dir"];
-const DEFAULT_USAGE_LIMIT_RESUME_PROMPT: &str = "Please continue from where the conversation left off after the usage limit reset or account switch.";
+const DEFAULT_USAGE_LIMIT_RESUME_PROMPT: &str =
+    "The usage limit has been reset, so you can resume from where you left off.";
 const MAX_AGENT_COPY_HISTORY: usize = 32;
 
 /// Common initialization parameters shared by all `ChatWidget` constructors.

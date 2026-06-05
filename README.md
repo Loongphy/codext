@@ -77,7 +77,7 @@ You can configure this behavior using `[tui].usage_limit_resume_prompt`:
 * **Default**: If left unset, the system uses the following built-in prompt:
 
   ```text
-  Please continue from where the conversation left off after the usage limit reset or account switch.
+  The usage limit has been reset, so you can resume from where you left off.
   ```
 
   Example:
