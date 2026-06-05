@@ -1682,22 +1682,30 @@ impl BottomPane {
         .desired_height(width)
     }
 
-    pub(crate) fn cursor_pos_with_composer_right_reserve(
+    pub(crate) fn cursor_pos_with_composer_right_reserve_and_header(
         &self,
         area: Rect,
         composer_right_reserve: u16,
+        composer_header: Option<RenderableItem<'static>>,
     ) -> Option<(u16, u16)> {
-        self.as_renderable_with_composer_right_reserve(composer_right_reserve)
-            .cursor_pos(area)
+        self.as_renderable_with_composer_right_reserve_and_header(
+            composer_right_reserve,
+            composer_header,
+        )
+        .cursor_pos(area)
     }
 
-    pub(crate) fn cursor_style_with_composer_right_reserve(
+    pub(crate) fn cursor_style_with_composer_right_reserve_and_header(
         &self,
         area: Rect,
         composer_right_reserve: u16,
+        composer_header: Option<RenderableItem<'static>>,
     ) -> crossterm::cursor::SetCursorStyle {
-        self.as_renderable_with_composer_right_reserve(composer_right_reserve)
-            .cursor_style(area)
+        self.as_renderable_with_composer_right_reserve_and_header(
+            composer_right_reserve,
+            composer_header,
+        )
+        .cursor_style(area)
     }
 
     pub(crate) fn set_status_line(&mut self, status_line: Option<Line<'static>>) {
