@@ -9,6 +9,7 @@ use crate::app_event::AppEvent;
 use crate::app_event::ConnectorsSnapshot;
 use crate::app_server_session::AppServerSession;
 use crate::app_server_session::status_account_display_from_auth_mode;
+use crate::status::StatusAccountDisplay;
 use codex_app_server_client::AppServerEvent;
 use codex_app_server_protocol::AuthMode;
 use codex_app_server_protocol::ServerNotification;
@@ -81,10 +82,21 @@ impl App {
                 return;
             }
             ServerNotification::AccountUpdated(notification) => {
+                // Preserve the current email so an AccountUpdated notification
+                // (which carries no email field) doesn't clear a previously
+                // known email on the status display.
+                let current_email = self
+                    .chat_widget
+                    .status_account_display()
+                    .and_then(|d| match d {
+                        StatusAccountDisplay::ChatGpt { email, .. } => email.clone(),
+                        StatusAccountDisplay::ApiKey => None,
+                    });
                 self.chat_widget.update_account_state(
                     status_account_display_from_auth_mode(
                         notification.auth_mode,
                         notification.plan_type,
+                        current_email,
                     ),
                     notification.plan_type,
                     matches!(

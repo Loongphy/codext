@@ -1201,13 +1201,14 @@ fn thread_realtime_start_params(
 pub(crate) fn status_account_display_from_auth_mode(
     auth_mode: Option<AuthMode>,
     plan_type: Option<codex_protocol::account::PlanType>,
+    email: Option<String>,
 ) -> Option<StatusAccountDisplay> {
     match auth_mode {
         Some(AuthMode::ApiKey) => Some(StatusAccountDisplay::ApiKey),
         Some(AuthMode::Chatgpt)
         | Some(AuthMode::ChatgptAuthTokens)
         | Some(AuthMode::AgentIdentity) => Some(StatusAccountDisplay::ChatGpt {
-            email: None,
+            email,
             plan: plan_type.map(plan_type_display_name),
         }),
         None => None,
@@ -2552,6 +2553,7 @@ mod tests {
         let business = status_account_display_from_auth_mode(
             Some(AuthMode::Chatgpt),
             Some(codex_protocol::account::PlanType::EnterpriseCbpUsageBased),
+            None,
         );
         assert!(matches!(
             business,
@@ -2564,6 +2566,7 @@ mod tests {
         let team = status_account_display_from_auth_mode(
             Some(AuthMode::Chatgpt),
             Some(codex_protocol::account::PlanType::SelfServeBusinessUsageBased),
+            None,
         );
         assert!(matches!(
             team,
@@ -2571,6 +2574,20 @@ mod tests {
                 email: None,
                 plan: Some(ref plan),
             }) if plan == "Business"
+        ));
+
+        // Passing an email should preserve it (the AccountUpdated path needs this).
+        let with_email = status_account_display_from_auth_mode(
+            Some(AuthMode::Chatgpt),
+            Some(codex_protocol::account::PlanType::Plus),
+            Some("user@example.com".to_string()),
+        );
+        assert!(matches!(
+            with_email,
+            Some(StatusAccountDisplay::ChatGpt {
+                email: Some(ref email),
+                plan: Some(ref plan),
+            }) if email == "user@example.com" && plan == "Plus"
         ));
     }
 }
