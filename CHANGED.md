@@ -46,13 +46,6 @@ Implementation must follow the status-header skill .agents/skills/status-header/
 - When a later Codex rate-limit snapshot shows quota available again, Codext resumes autosend and submits exactly the first queued user message; any additional queued messages remain queued for normal FIFO draining after that turn completes.
 - If both a parked usage-limit recovery prompt and user-queued follow-ups exist when quota recovers, the user-queued follow-up wins and the stale synthetic recovery prompt is cleared.
 
-## AGENTS.md reload semantics
-
-- On each new user turn, Codex now checks whether project docs (`AGENTS.md` hierarchy) changed.
-- If changed, it reloads instructions before creating the turn, so updates made during a running turn take effect on the next turn.
-- When a reload happens, Codex emits an explicit warning in the transcript:
-  `AGENTS.md instructions changed. Reloaded and applied starting this turn.`
-
 ## App-server auth.json account switching
 
 - The app-server now reloads auth from storage before `thread/start`, `thread/resume`, and `turn/start` when no turn is running.
