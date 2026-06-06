@@ -16,8 +16,9 @@ surfaces such as `Working`, unified exec footer, pending approvals, and queued-i
 Do not wrap the entire bottom pane with the status header; inject the header into the bottom-pane
 composition immediately before the composer so active task state remains above it.
 
-- Top inset: `Insets::tlbr(1, LIVE_PREFIX_COLS, 1, 0)`
+- Top inset: `Insets::tlbr(0, LIVE_PREFIX_COLS, 1, 0)`
 - Left gutter: `LIVE_PREFIX_COLS` columns
+- Outer spacing above the bottom section already provides the single-row gap above the header; do not add another header-local top spacer.
 - When no content: bottom pane gets 1-line top inset instead
 
 ## Segment order (fixed)

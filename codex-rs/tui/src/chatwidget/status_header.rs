@@ -7,9 +7,9 @@
 //!
 //! To keep the visual rhythm consistent across the TUI:
 //!
-//! - **Top spacing:** The status header row is preceded by a 1-line top inset
-//!   (`Insets::tlbr(/*top*/ 1, …)`), matching the top spacing used by the active
-//!   cell and active hook cell renderables.
+//! - **Top spacing:** The enclosing bottom section already contributes the 1-line
+//!   gap above this surface, so the status header itself does not add another top
+//!   inset.
 //! - **Left gutter:** The content is left-indented by [`LIVE_PREFIX_COLS`] columns,
 //!   matching the gutter used by the configurable footer `/statusline` and history
 //!   cells. The same constant (`crate::ui_consts::LIVE_PREFIX_COLS`) drives both
@@ -36,7 +36,7 @@ pub(super) fn renderable(widget: &ChatWidget) -> Option<RenderableItem<'static>>
     }
     Some(
         RenderableItem::Owned(Box::new(status_header)).inset(Insets::tlbr(
-            /*top*/ 1,
+            /*top*/ 0,
             /*left*/ LIVE_PREFIX_COLS,
             /*bottom*/ 1,
             /*right*/ 0,
