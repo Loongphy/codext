@@ -46,7 +46,7 @@ description: 'Reapply a fork or secondary-development branch onto the latest sta
 - 在 `NEW_BRANCH` 上保留并更新根目录 `AGENTS.md`：明确说明当前正在进行的是一次 upstream reapply 工作，禁止编写/修改测试代码，禁止执行任何 lint / format / auto-fix 命令，并注明本次验收标准以本 skill 的 Acceptance criteria 为准。使用 `start_from_tag.sh` 时，这段临时 guardrails 应由脚本自动刷新；若你没走脚本，则必须手动补上。
 - 对于用户可见的 TUI 功能，如果 `codex-rs/tui` 与 `codex-rs/tui_app_server` 都存在对应的平行实现，则必须同步落地两边；不能只改其中一边就判定该需求已完成，除非 upstream 已明确删除其一，或你能在当前 tag 的代码里给出清晰的“不需要同步”的理由。
 - 如果 `CHANGED.md` 记录的是这类共享 TUI 行为，文案应写成“用户可见行为要求”，并在需要时明确适用于 `tui` 与 `tui_app_server`，避免写成只对应某一个实现细节的说明。
-- 在 `codex-rs` 目录下执行 `cargo build -p codex-cli`，确认能正常启动运行。
+- 在 `codex-rs` 目录下执行 `cargo build -p codex-cli`，确认能正常构建。
 
 ### 0) One-time setup（如果还没有）
 
@@ -179,15 +179,7 @@ git diff BASE_COMMIT..OLD_BRANCH -- path/to/file
 - 具体图标、颜色、segment 顺序、rate-limit summary 格式与刷新语义，统一遵循 `status-header` skill；这里不要再维护第二份会漂移的细节规范。
 - 如果当前仓库的 TUI 样式规范、lint 或现有封装与状态栏 skill 的示例写法冲突，优先遵循仓库本身的规则，但要保持相同的用户可见效果；不要为了强行对齐示例而引入 `clippy` 警告/报错，或去修改测试代码。
 
-### 6) Build (codex-rs)
-
-在 `codex-rs` 目录下执行：
-
-```bash
-cargo build -p codex-cli
-```
-
-### 7) Sanity checks
+### 6) Sanity checks
 
 比较“你最终在新分支做了哪些改动”（相对 `TAG`）：
 
@@ -200,25 +192,24 @@ git diff TAG..NEW_BRANCH
 
 更多对照方式（worktree、merge-base 对照等）见 `references/advanced.md`。
 
-### 8) Final release build (codex-rs)
+### 7) Build (codex-rs)
 
-所有重实现修改完成并确认后，再执行最后收尾构建：
+在 `codex-rs` 目录下执行：
 
 ```bash
-cd codex-rs
-cargo build -p codex-cli --release
+cargo build -p codex-cli
 ```
 
-### 9) Push and monitor
+### 8) Push and monitor
 
 完成 reapply 并提交后：
 
 - 推送当前 reapply 分支到 `origin`。
 - 同一提交强制推送到 `origin/main`。
-- 启动 `cargo build -p codex-cli --release`。
-- build 启动后约 40 分钟再检查一次构建结果，同时检查 `origin/main` 的 GitHub Actions 状态。
-- 如果本地 release build 或 `origin/main` GitHub Actions 存在问题，参考当前 upstream 对应代码与 CI 配置，比对后自动修复；修复提交后再次推送当前分支，并强制推送 `origin/main`。
-- 重复上述 build / CI 检查 / 修复 / 推送循环，直到本地 release build 完成且 `origin/main` GitHub Actions 没有需要处理的问题。
+- 后续每次更新后，也都要把同一提交同步推送到这两个分支。
+- 推送后约 40 分钟再检查一次 `origin/main` 的 GitHub Actions 状态。
+- 如果 `origin/main` GitHub Actions 存在问题，参考当前 upstream 对应代码与 CI 配置，比对后自动修复；修复提交后再次推送当前分支，并强制推送 `origin/main`。
+- 重复上述 CI 检查 / 修复 / 推送循环，直到 `origin/main` GitHub Actions 没有需要处理的问题。
 
 ## How changes are computed from OLD_BRANCH
 
