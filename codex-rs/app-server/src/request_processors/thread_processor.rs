@@ -807,6 +807,17 @@ impl ThreadRequestProcessor {
         app_server_client_version: Option<String>,
         request_context: RequestContext,
     ) -> Result<(), JSONRPCErrorError> {
+        reload_auth_from_storage_if_idle(
+            &self.auth_manager,
+            &self.thread_manager,
+            &self.config_manager,
+            &self.outgoing,
+            &self.thread_watch_manager,
+            &self.config.chatgpt_base_url,
+            "thread/start",
+        )
+        .await;
+
         let ThreadStartParams {
             model,
             model_provider,
@@ -2381,6 +2392,17 @@ impl ThreadRequestProcessor {
         app_server_client_name: Option<String>,
         app_server_client_version: Option<String>,
     ) -> Result<(), JSONRPCErrorError> {
+        reload_auth_from_storage_if_idle(
+            &self.auth_manager,
+            &self.thread_manager,
+            &self.config_manager,
+            &self.outgoing,
+            &self.thread_watch_manager,
+            &self.config.chatgpt_base_url,
+            "thread/resume",
+        )
+        .await;
+
         if let Ok(thread_id) = ThreadId::from_string(&params.thread_id)
             && self
                 .pending_thread_unloads

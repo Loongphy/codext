@@ -262,6 +262,12 @@ impl ChatWidget {
                 self.rate_limit_switch_prompt = RateLimitSwitchPromptState::Pending;
             }
 
+            let has_exhausted_quota = Self::rate_limit_snapshot_has_exhausted_quota(&snapshot);
+            let has_available_quota = Self::rate_limit_snapshot_has_available_quota(&snapshot);
+            let should_resume_paused_queue =
+                is_codex_limit && !has_exhausted_quota && has_available_quota;
+            let should_pause_queue = is_codex_limit && has_exhausted_quota;
+
             let mut display =
                 rate_limit_snapshot_display_for_limit(&snapshot, limit_label, Local::now());
             if display.individual_limit.is_none() {
@@ -276,6 +282,24 @@ impl ChatWidget {
                 }
                 self.request_redraw();
             }
+            if should_pause_queue {
+                self.input_queue.suppress_queue_autosend = true;
+                self.bottom_pane
+                    .set_queue_submissions(/*queue_submissions*/ true);
+                self.request_redraw();
+            } else if should_resume_paused_queue {
+                let was_suppressing_queue_autosend = self.input_queue.suppress_queue_autosend;
+                self.codex_rate_limit_reached_type = None;
+                self.input_queue.suppress_queue_autosend = false;
+                self.bottom_pane
+                    .set_queue_submissions(/*queue_submissions*/ false);
+                if was_suppressing_queue_autosend && self.has_queued_follow_up_messages() {
+                    self.clear_pending_usage_limit_resume_turn();
+                }
+                if was_suppressing_queue_autosend {
+                    self.maybe_send_next_queued_input();
+                }
+            }
         } else {
             self.rate_limit_snapshots_by_limit_id.clear();
             self.codex_rate_limit_reached_type = None;
@@ -284,6 +308,50 @@ impl ChatWidget {
     }
 
     pub(super) fn stop_rate_limit_poller(&mut self) {}
+
+    fn rate_limit_snapshot_has_available_quota(snapshot: &RateLimitSnapshot) -> bool {
+        if Self::rate_limit_snapshot_has_exhausted_quota(snapshot) {
+            return false;
+        }
+
+        if snapshot
+            .credits
+            .as_ref()
+            .is_some_and(|credits| credits.has_credits || credits.unlimited)
+        {
+            return true;
+        }
+
+        let windows = [snapshot.primary.as_ref(), snapshot.secondary.as_ref()];
+        let mut saw_window = false;
+        for window in windows.into_iter().flatten() {
+            saw_window = true;
+            if window.used_percent >= 100 {
+                return false;
+            }
+        }
+        saw_window
+    }
+
+    fn rate_limit_snapshot_has_exhausted_quota(snapshot: &RateLimitSnapshot) -> bool {
+        if matches!(
+            snapshot.rate_limit_reached_type,
+            Some(
+                RateLimitReachedType::RateLimitReached
+                    | RateLimitReachedType::WorkspaceOwnerCreditsDepleted
+                    | RateLimitReachedType::WorkspaceMemberCreditsDepleted
+                    | RateLimitReachedType::WorkspaceOwnerUsageLimitReached
+                    | RateLimitReachedType::WorkspaceMemberUsageLimitReached
+            )
+        ) {
+            return true;
+        }
+
+        [snapshot.primary.as_ref(), snapshot.secondary.as_ref()]
+            .into_iter()
+            .flatten()
+            .any(|window| window.used_percent >= 100)
+    }
 
     #[cfg_attr(not(test), allow(dead_code))]
     pub(super) fn prefetch_rate_limits(&mut self) {
@@ -498,6 +566,83 @@ impl ChatWidget {
             /*hint*/ None,
         ));
         self.request_redraw();
+    }
+
+    pub(crate) fn handle_auth_identity_changed(&mut self) {
+        self.rate_limit_snapshots_by_limit_id.clear();
+        self.codex_rate_limit_reached_type = None;
+        self.input_queue.suppress_queue_autosend = false;
+        self.bottom_pane
+            .set_queue_submissions(/*queue_submissions*/ false);
+        self.rate_limit_warnings = RateLimitWarningState::default();
+        self.rate_limit_switch_prompt = RateLimitSwitchPromptState::default();
+        self.add_credits_nudge_email_in_flight = None;
+        self.refresh_status_line();
+        self.request_redraw();
+    }
+
+    pub(crate) fn defer_auth_reload_until_idle(&mut self, attempt: u8) {
+        self.pending_auth_reload_attempt = Some(
+            self.pending_auth_reload_attempt
+                .map(|existing| existing.min(attempt))
+                .unwrap_or(attempt),
+        );
+    }
+
+    pub(crate) fn on_auth_reload_completed(&mut self, identity_changed: bool) {
+        self.pending_auth_reload_attempt = None;
+        if identity_changed && self.pending_usage_limit_resume_turn.is_some() {
+            self.usage_limit_resume_waiting_for_auth_reload = false;
+        }
+        self.maybe_send_next_queued_input();
+    }
+
+    pub(crate) fn usage_limit_resume_prompt(&self) -> Option<String> {
+        match self.config.tui_usage_limit_resume_prompt.as_deref() {
+            Some("") => None,
+            Some(prompt) => Some(prompt.to_string()),
+            None => Some(DEFAULT_USAGE_LIMIT_RESUME_PROMPT.to_string()),
+        }
+    }
+
+    pub(crate) fn on_usage_limit_error(&mut self, message: String) {
+        if self.pending_usage_limit_resume_turn.is_none()
+            && let Some(prompt) = self.usage_limit_resume_prompt()
+        {
+            self.pending_usage_limit_resume_turn = Some(UserMessage::from(prompt));
+            self.usage_limit_resume_waiting_for_auth_reload = true;
+        }
+        self.on_error(message);
+    }
+
+    pub(crate) fn clear_pending_usage_limit_resume_turn(&mut self) {
+        if self.pending_usage_limit_resume_turn.is_none()
+            && !self.usage_limit_resume_waiting_for_auth_reload
+        {
+            return;
+        }
+        self.pending_usage_limit_resume_turn = None;
+        self.usage_limit_resume_waiting_for_auth_reload = false;
+        self.refresh_pending_input_preview();
+    }
+
+    pub(crate) fn is_task_running(&self) -> bool {
+        self.bottom_pane.is_task_running()
+    }
+
+    pub(crate) fn maybe_dispatch_deferred_auth_reload(&mut self) {
+        if self.bottom_pane.is_task_running() {
+            return;
+        }
+        let Some(attempt) = self.pending_auth_reload_attempt.take() else {
+            return;
+        };
+        if attempt <= 1 {
+            self.app_event_tx.send(AppEvent::AuthFileChanged);
+        } else {
+            self.app_event_tx
+                .send(AppEvent::AuthFileChangedRetry { attempt });
+        }
     }
 
     pub(crate) fn set_rate_limit_switch_prompt_hidden(&mut self, hidden: bool) {
