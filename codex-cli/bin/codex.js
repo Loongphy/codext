@@ -1,8 +1,8 @@
 #!/usr/bin/env node
-// Unified entry point for the Codex CLI.
+// Unified entry point for the Codext CLI.
 
 import { spawn } from "node:child_process";
-import { existsSync, realpathSync } from "fs";
+import { chmodSync, existsSync, statSync } from "fs";
 import { createRequire } from "node:module";
 import path from "path";
 import { fileURLToPath } from "url";
@@ -13,12 +13,11 @@ const __dirname = path.dirname(__filename);
 const require = createRequire(import.meta.url);
 
 const PLATFORM_PACKAGE_BY_TARGET = {
-  "x86_64-unknown-linux-musl": "@openai/codex-linux-x64",
-  "aarch64-unknown-linux-musl": "@openai/codex-linux-arm64",
-  "x86_64-apple-darwin": "@openai/codex-darwin-x64",
-  "aarch64-apple-darwin": "@openai/codex-darwin-arm64",
-  "x86_64-pc-windows-msvc": "@openai/codex-win32-x64",
-  "aarch64-pc-windows-msvc": "@openai/codex-win32-arm64",
+  "x86_64-unknown-linux-musl": "@loongphy/codext-linux-x64",
+  "aarch64-unknown-linux-musl": "@loongphy/codext-linux-arm64",
+  "x86_64-apple-darwin": "@loongphy/codext-darwin-x64",
+  "aarch64-apple-darwin": "@loongphy/codext-darwin-arm64",
+  "x86_64-pc-windows-msvc": "@loongphy/codext-win32-x64",
 };
 
 const { platform, arch } = process;
@@ -55,9 +54,6 @@ switch (platform) {
       case "x64":
         targetTriple = "x86_64-pc-windows-msvc";
         break;
-      case "arm64":
-        targetTriple = "aarch64-pc-windows-msvc";
-        break;
       default:
         break;
     }
@@ -75,36 +71,60 @@ if (!platformPackage) {
   throw new Error(`Unsupported target triple: ${targetTriple}`);
 }
 
-function findCodexExecutable() {
-  let vendorRoot;
-  try {
-    const packageJsonPath = require.resolve(`${platformPackage}/package.json`);
-    vendorRoot = path.join(path.dirname(packageJsonPath), "vendor");
-  } catch {
-    vendorRoot = path.join(__dirname, "..", "vendor");
-  }
+const codexBinaryName = process.platform === "win32" ? "codex.exe" : "codex";
+const localVendorRoot = path.join(__dirname, "..", "vendor");
+const localBinaryPath = path.join(
+  localVendorRoot,
+  targetTriple,
+  "codex",
+  codexBinaryName,
+);
 
-  const codexExecutable = path.join(
-    vendorRoot,
-    targetTriple,
-    "bin",
-    process.platform === "win32" ? "codex.exe" : "codex",
-  );
-  if (existsSync(codexExecutable)) {
-    return codexExecutable;
+let vendorRoot;
+try {
+  const packageJsonPath = require.resolve(`${platformPackage}/package.json`);
+  vendorRoot = path.join(path.dirname(packageJsonPath), "vendor");
+} catch {
+  if (existsSync(localBinaryPath)) {
+    vendorRoot = localVendorRoot;
+  } else {
+    const packageManager = detectPackageManager();
+    const updateCommand =
+      packageManager === "bun"
+        ? "bun install -g @loongphy/codext@latest"
+        : "npm install -g @loongphy/codext@latest";
+    throw new Error(
+      `Missing optional dependency ${platformPackage}. Reinstall Codext: ${updateCommand}`,
+    );
   }
+}
 
+if (!vendorRoot) {
   const packageManager = detectPackageManager();
   const updateCommand =
     packageManager === "bun"
-      ? "bun install -g @openai/codex@latest"
-      : "npm install -g @openai/codex@latest";
+      ? "bun install -g @loongphy/codext@latest"
+      : "npm install -g @loongphy/codext@latest";
   throw new Error(
-    `Missing optional dependency ${platformPackage}. Reinstall Codex: ${updateCommand}`,
+    `Missing optional dependency ${platformPackage}. Reinstall Codext: ${updateCommand}`,
   );
 }
 
-const binaryPath = findCodexExecutable();
+const archRoot = path.join(vendorRoot, targetTriple);
+const binaryPath = path.join(archRoot, "codex", codexBinaryName);
+
+function ensureExecutable(filePath) {
+  if (process.platform === "win32" || !existsSync(filePath)) {
+    return;
+  }
+
+  const currentMode = statSync(filePath).mode;
+  if ((currentMode & 0o111) !== 0) {
+    return;
+  }
+
+  chmodSync(filePath, currentMode | 0o111);
+}
 
 // Use an asynchronous spawn instead of spawnSync so that Node is able to
 // respond to signals (e.g. Ctrl-C / SIGINT) while the native binary is
@@ -112,8 +132,18 @@ const binaryPath = findCodexExecutable();
 // and guarantees that when either the child terminates or the parent
 // receives a fatal signal, both processes exit in a predictable manner.
 
+function getUpdatedPath(newDirs) {
+  const pathSep = process.platform === "win32" ? ";" : ":";
+  const existingPath = process.env.PATH || "";
+  const updatedPath = [
+    ...newDirs,
+    ...existingPath.split(pathSep).filter(Boolean),
+  ].join(pathSep);
+  return updatedPath;
+}
+
 /**
- * Use heuristics to detect the package manager that was used to install Codex
+ * Use heuristics to detect the package manager that was used to install Codext
  * in order to give the user a hint about how to update it.
  */
 function detectPackageManager() {
@@ -137,15 +167,21 @@ function detectPackageManager() {
   return userAgent ? "npm" : null;
 }
 
+const additionalDirs = [];
+const pathDir = path.join(archRoot, "path");
+if (existsSync(pathDir)) {
+  additionalDirs.push(pathDir);
+}
+const updatedPath = getUpdatedPath(additionalDirs);
+
+const env = { ...process.env, PATH: updatedPath };
 const packageManagerEnvVar =
   detectPackageManager() === "bun"
     ? "CODEX_MANAGED_BY_BUN"
     : "CODEX_MANAGED_BY_NPM";
-const env = {
-  ...process.env,
-  [packageManagerEnvVar]: "1",
-  CODEX_MANAGED_PACKAGE_ROOT: realpathSync(path.join(__dirname, "..")),
-};
+env[packageManagerEnvVar] = "1";
+
+ensureExecutable(binaryPath);
 
 const child = spawn(binaryPath, process.argv.slice(2), {
   stdio: "inherit",

@@ -491,6 +491,16 @@ impl ThreadManager {
         self.state.list_thread_ids().await
     }
 
+    pub async fn invalidate_model_transport_caches(&self) -> usize {
+        let threads: Vec<Arc<CodexThread>> =
+            self.state.threads.read().await.values().cloned().collect();
+        let invalidated_thread_count = threads.len();
+        for thread in threads {
+            thread.invalidate_model_transport_cache();
+        }
+        invalidated_thread_count
+    }
+
     pub fn subscribe_thread_created(&self) -> broadcast::Receiver<ThreadId> {
         self.state.thread_created_tx.subscribe()
     }

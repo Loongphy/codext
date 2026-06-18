@@ -394,6 +394,7 @@ mod review_popups;
 use self::review::ReviewState;
 #[cfg(test)]
 pub(crate) use self::review_popups::show_review_commit_picker_with_entries;
+mod status_header;
 mod service_tiers;
 mod settings;
 mod settings_popups;
@@ -469,6 +470,8 @@ const APPROVE_FOR_ME_LABEL: &str = "Approve for me";
 const AUTO_REVIEW_DESCRIPTION: &str = "Only ask for actions detected as potentially unsafe.";
 const DEFAULT_OPENAI_BASE_URL: &str = "https://api.openai.com/v1";
 const DEFAULT_STATUS_LINE_ITEMS: [&str; 2] = ["model-with-reasoning", "current-dir"];
+const DEFAULT_USAGE_LIMIT_RESUME_PROMPT: &str =
+    "The usage limit has been reset, so you can resume from where you left off.";
 const MAX_AGENT_COPY_HISTORY: usize = 32;
 
 /// Common initialization parameters shared by all `ChatWidget` constructors.
@@ -718,12 +721,21 @@ pub(crate) struct ChatWidget {
     status_line_git_summary_pending: bool,
     // True once we've attempted a Git summary lookup for the current CWD.
     status_line_git_summary_lookup_complete: bool,
+    // Cached Git status for the compact status header.
+    status_header_git_status: Option<crate::git_status::GitStatusSummary>,
+    // CWD used by the active header Git status poller.
+    status_header_git_status_cwd: Option<PathBuf>,
+    // Background poller for header Git status; aborted when this widget is dropped or retargeted.
+    status_header_git_status_task: Option<tokio::task::JoinHandle<()>>,
     // Current thread-goal status shown in the status line when plan mode is inactive.
     current_goal_status_indicator: Option<GoalStatusIndicator>,
     current_goal_status: Option<GoalStatusState>,
     external_editor_state: ExternalEditorState,
     last_rendered_user_message_display: Option<UserMessageDisplay>,
     last_non_retry_error: Option<(String, String)>,
+    pending_auth_reload_attempt: Option<u8>,
+    pending_usage_limit_resume_turn: Option<UserMessage>,
+    usage_limit_resume_waiting_for_auth_reload: bool,
 }
 
 #[cfg_attr(not(test), allow(dead_code))]
@@ -1977,6 +1989,7 @@ fn has_websocket_timing_metrics(summary: RuntimeMetricsSummary) -> bool {
 impl Drop for ChatWidget {
     fn drop(&mut self) {
         self.stop_rate_limit_poller();
+        self.stop_status_header_git_status_poller();
     }
 }
 
