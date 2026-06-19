@@ -189,19 +189,11 @@ where
 
     fn on_event(&self, event: &Event<'_>, ctx: tracing_subscriber::layer::Context<'_, S>) {
         let metadata = event.metadata();
-        // The SDK emits DEBUG timer meta-events every second per process; these
-        // were over 30% of retained logs in measured high-fanout Codex environments.
-        if metadata.target() == "opentelemetry_sdk"
-            && matches!(
-                *metadata.level(),
-                tracing::Level::TRACE | tracing::Level::DEBUG
-            )
-        {
-            return;
-        }
-
         let mut visitor = MessageVisitor::default();
         event.record(&mut visitor);
+        if should_drop_event(metadata, visitor.message.as_deref()) {
+            return;
+        }
         let thread_id = visitor
             .thread_id
             .clone()
@@ -413,6 +405,42 @@ async fn flush(state_db: &StateRuntime, buffer: &mut Vec<LogEntry>) {
     }
     let entries = buffer.split_off(0);
     let _ = state_db.insert_logs(entries.as_slice()).await;
+}
+
+fn should_drop_event(metadata: &tracing::Metadata<'_>, message: Option<&str>) -> bool {
+    if metadata.target() == "opentelemetry_sdk"
+        && matches!(
+            *metadata.level(),
+            tracing::Level::TRACE | tracing::Level::DEBUG
+        )
+    {
+        return true;
+    }
+
+    if metadata.target() == "log"
+        && matches!(
+            *metadata.level(),
+            tracing::Level::TRACE | tracing::Level::DEBUG
+        )
+        && message.is_some_and(is_noisy_file_watcher_log)
+    {
+        return true;
+    }
+
+    false
+}
+
+fn is_noisy_file_watcher_log(message: &str) -> bool {
+    message.starts_with("inotify event:")
+        || message.starts_with("inotify event with unknown descriptor:")
+        || message.starts_with("adding inotify watch")
+        || message.starts_with("removing inotify watch")
+        || message.starts_with("kqueue event:")
+        || message.starts_with("adding kqueue watch")
+        || message.starts_with("removing kqueue watch")
+        || message.starts_with("FSEvent:")
+        || message.starts_with("rescanning ")
+        || message.starts_with("Event: path = ")
 }
 
 #[derive(Default)]
