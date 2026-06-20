@@ -51,3 +51,52 @@ async fn sqlite_sink_drops_low_level_opentelemetry_sdk_logs() {
 
     let _ = tokio::fs::remove_dir_all(codex_home).await;
 }
+
+#[tokio::test]
+async fn sqlite_sink_drops_low_level_notify_logs() {
+    let codex_home =
+        std::env::temp_dir().join(format!("codex-state-log-db-filter-{}", Uuid::new_v4()));
+    let runtime = StateRuntime::init(codex_home.clone(), "test-provider".to_string())
+        .await
+        .expect("initialize runtime");
+    let layer = start(runtime.clone());
+
+    let guard = tracing_subscriber::registry()
+        .with(
+            layer
+                .clone()
+                .with_filter(Targets::new().with_default(tracing::Level::TRACE)),
+        )
+        .set_default();
+
+    tracing::trace!(
+        target: "log",
+        "inotify event: Event {{ mask: EventMask(MODIFY), name: Some(\"logs_2.sqlite-wal\") }}"
+    );
+    tracing::trace!(target: "log", "adding inotify watch");
+    tracing::debug!(target: "log", "inotify event with unknown descriptor: Event {{ wd: 1 }}");
+    tracing::trace!(target: "log", "kqueue event: Event {{ ident: 1 }}");
+    tracing::trace!(target: "log", "FSEvent: path = `/tmp/logs_2.sqlite-wal`, flag = ItemModified");
+    tracing::trace!(target: "log", "Event: path = `C:\\tmp\\logs_2.sqlite-wal`, action = Modified");
+    tracing::trace!(target: "log", "retained-third-party-trace");
+
+    layer.flush().await;
+    drop(guard);
+
+    let logs = runtime
+        .query_logs(&crate::LogQuery::default())
+        .await
+        .expect("query logs after flush");
+    assert_eq!(
+        logs.iter()
+            .map(|row| (
+                row.level.as_str(),
+                row.target.as_str(),
+                row.message.as_deref()
+            ))
+            .collect::<Vec<_>>(),
+        vec![("TRACE", "log", Some("retained-third-party-trace"))]
+    );
+
+    let _ = tokio::fs::remove_dir_all(codex_home).await;
+}
