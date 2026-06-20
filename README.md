@@ -22,6 +22,12 @@ cd codex-rs
 cargo run --bin codex
 ```
 
+## Temporary Workaround
+
+SQLite log sink ignores `RUST_LOG` and hardcodes TRACE-level persistence, causing excessive WAL writes regardless of configured log level. See [openai/codex issue #17320](https://github.com/openai/codex/issues/17320).
+
+This fork disables the persistent log DB sink as a temporary workaround until upstream resolves the filtering issue.
+
 ## Features
 
 > Full change log: see [CHANGED.md](./CHANGED.md).

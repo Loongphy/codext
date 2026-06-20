@@ -1228,7 +1228,10 @@ pub async fn run_main(
 
     let otel_tracing_layer = otel.as_ref().and_then(|o| o.tracing_layer());
 
-    let log_db = state_db.clone().map(log_db::start);
+    // Temporary workaround for excessive SQLite WAL writes:
+    // disable the persistent log DB sink until the upstream TRACE filtering
+    // issue is fixed.
+    let log_db: Option<log_db::LogDbLayer> = None;
     let log_db_layer = log_db
         .clone()
         .map(|layer| layer.with_filter(Targets::new().with_default(Level::TRACE)));
