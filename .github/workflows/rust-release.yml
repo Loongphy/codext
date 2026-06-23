@@ -405,6 +405,26 @@ jobs:
           cp "${artifacts_root}/codex-bin-x86_64-pc-windows-msvc/codex-command-runner.exe" \
             "${vendor_root}/x86_64-pc-windows-msvc/codex/codex-command-runner.exe"
 
+      - name: Strip Linux binaries for npm packaging
+        shell: bash
+        run: |
+          set -euo pipefail
+          vendor_root="${RUNNER_TEMP}/npm-root/vendor"
+          linux_targets=(
+            x86_64-unknown-linux-musl
+            aarch64-unknown-linux-musl
+          )
+
+          for target in "${linux_targets[@]}"; do
+            binary_path="${vendor_root}/${target}/codex/codex"
+            if [[ ! -f "${binary_path}" ]]; then
+              echo "Missing Linux binary for npm packaging: ${binary_path}"
+              exit 1
+            fi
+
+            strip --strip-debug --strip-unneeded "${binary_path}"
+          done
+
       - uses: facebook/install-dotslash@v2
 
       - name: Install ripgrep payloads
