@@ -661,7 +661,10 @@ pub async fn run_main_with_transport_options(
 
     let feedback_layer = feedback.logger_layer();
     let feedback_metadata_layer = feedback.metadata_layer();
-    let log_db = state_db.clone().map(log_db::start);
+    // Temporary workaround for excessive SQLite WAL writes:
+    // disable the persistent log DB sink until the upstream TRACE filtering
+    // issue is fixed.
+    let log_db: Option<log_db::LogDbLayer> = None;
     let log_db_layer = log_db
         .clone()
         .map(|layer| layer.with_filter(log_db::default_filter()));

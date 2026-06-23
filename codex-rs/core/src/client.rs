@@ -477,6 +477,10 @@ impl ModelClient {
         activated
     }
 
+    pub(crate) fn invalidate_cached_transport_state(&self) {
+        self.store_cached_websocket_session(WebsocketSession::default());
+    }
+
     /// Compacts the current conversation history using the Compact endpoint.
     ///
     /// This is a unary call (no streaming) that returns a new list of

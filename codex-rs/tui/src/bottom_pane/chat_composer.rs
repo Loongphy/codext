@@ -3416,11 +3416,11 @@ impl ChatComposer {
     fn footer_props(&self) -> FooterProps {
         let mode = self.footer_mode();
         let is_wsl = {
-            #[cfg(target_os = "linux")]
+            #[cfg(all(target_os = "linux", not(test)))]
             {
                 mode == FooterMode::ShortcutOverlay && crate::clipboard_paste::is_probably_wsl()
             }
-            #[cfg(not(target_os = "linux"))]
+            #[cfg(any(not(target_os = "linux"), test))]
             {
                 false
             }

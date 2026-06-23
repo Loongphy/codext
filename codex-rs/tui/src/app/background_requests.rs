@@ -89,6 +89,7 @@ impl App {
                         .and_then(|result| result.map_err(|err| err.to_string()))
                 }
                 RateLimitRefreshOrigin::StartupPrefetch { .. }
+                | RateLimitRefreshOrigin::BackgroundPoll
                 | RateLimitRefreshOrigin::StatusCommand { .. }
                 | RateLimitRefreshOrigin::UsageMenu { .. } => {
                     request.await.map_err(|err| err.to_string())
@@ -96,6 +97,27 @@ impl App {
             };
             app_event_tx.send(AppEvent::RateLimitsLoaded { origin, result });
         });
+    }
+
+    pub(super) fn start_rate_limit_polling(&mut self, app_server: &AppServerSession) {
+        if self.rate_limit_poll_task.is_some() {
+            return;
+        }
+
+        let request_handle = app_server.request_handle();
+        let app_event_tx = self.app_event_tx.clone();
+        self.rate_limit_poll_task = Some(tokio::spawn(async move {
+            loop {
+                tokio::time::sleep(Duration::from_secs(/*secs*/ 15)).await;
+                let result = fetch_account_rate_limits(request_handle.clone())
+                    .await
+                    .map_err(|err| err.to_string());
+                app_event_tx.send(AppEvent::RateLimitsLoaded {
+                    origin: RateLimitRefreshOrigin::BackgroundPoll,
+                    result,
+                });
+            }
+        }));
     }
 
     pub(super) fn refresh_token_activity(
