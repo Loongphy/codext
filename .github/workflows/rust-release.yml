@@ -172,10 +172,39 @@ jobs:
         shell: bash
         run: cargo build --locked --target ${{ matrix.target }} --release -p codex-cli --bin codex
 
+      - name: Stage Unix binary artifact
+        shell: bash
+        run: |
+          set -euo pipefail
+          staged_dir="${RUNNER_TEMP}/release-bin/${{ matrix.target }}"
+          rm -rf "${staged_dir}"
+          mkdir -p "${staged_dir}"
+          cp "target/${{ matrix.target }}/release/codex" "${staged_dir}/codex"
+
+      - name: Archive Linux symbols and strip staged binary
+        if: ${{ contains(matrix.target, 'unknown-linux-musl') }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          staged_dir="${RUNNER_TEMP}/release-bin/${{ matrix.target }}"
+          bash "${GITHUB_WORKSPACE}/.github/scripts/archive-release-symbols-and-strip-binaries.sh" \
+            --target "${{ matrix.target }}" \
+            --artifact-name "${{ matrix.target }}" \
+            --release-dir "${staged_dir}" \
+            --archive-dir "symbols-dist/${{ matrix.target }}" \
+            --binaries "codex"
+
       - uses: actions/upload-artifact@v7
         with:
           name: codex-bin-${{ matrix.target }}
-          path: codex-rs/target/${{ matrix.target }}/release/codex
+          path: ${{ runner.temp }}/release-bin/${{ matrix.target }}/codex
+          if-no-files-found: error
+
+      - if: ${{ contains(matrix.target, 'unknown-linux-musl') }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: codex-symbols-${{ matrix.target }}
+          path: codex-rs/symbols-dist/${{ matrix.target }}/*
           if-no-files-found: error
 
   build-windows:
@@ -275,6 +304,12 @@ jobs:
           pattern: codex-bin-*
           path: ${{ runner.temp }}/artifacts
 
+      - name: Download Linux symbols artifacts
+        uses: actions/download-artifact@v8
+        with:
+          pattern: codex-symbols-*
+          path: ${{ runner.temp }}/symbols
+
       - name: Stage release assets
         env:
           VERSION: ${{ steps.compute.outputs.release_version }}
@@ -313,6 +348,13 @@ jobs:
             cd "${windows_stage}"
             zip -q -r "${out_dir}/codext-win32-x64-${VERSION}.zip" .
           )
+
+          symbols_root="${RUNNER_TEMP}/symbols"
+          if [[ -d "${symbols_root}" ]]; then
+            while IFS= read -r symbol_archive; do
+              cp "${symbol_archive}" "${out_dir}/"
+            done < <(find "${symbols_root}" -type f -name '*.tar.gz' | sort)
+          fi
 
       - name: Create or update GitHub Release
         env:
@@ -404,26 +446,6 @@ jobs:
             "${vendor_root}/x86_64-pc-windows-msvc/codex/codex-windows-sandbox-setup.exe"
           cp "${artifacts_root}/codex-bin-x86_64-pc-windows-msvc/codex-command-runner.exe" \
             "${vendor_root}/x86_64-pc-windows-msvc/codex/codex-command-runner.exe"
-
-      - name: Strip Linux binaries for npm packaging
-        shell: bash
-        run: |
-          set -euo pipefail
-          vendor_root="${RUNNER_TEMP}/npm-root/vendor"
-          linux_targets=(
-            x86_64-unknown-linux-musl
-            aarch64-unknown-linux-musl
-          )
-
-          for target in "${linux_targets[@]}"; do
-            binary_path="${vendor_root}/${target}/codex/codex"
-            if [[ ! -f "${binary_path}" ]]; then
-              echo "Missing Linux binary for npm packaging: ${binary_path}"
-              exit 1
-            fi
-
-            strip --strip-debug --strip-unneeded "${binary_path}"
-          done
 
       - uses: facebook/install-dotslash@v2
 
