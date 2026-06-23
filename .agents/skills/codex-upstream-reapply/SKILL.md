@@ -11,19 +11,24 @@ description: 'Reapply a fork or secondary-development branch onto the latest sta
 
 核心原则：`OLD_BRANCH` 的代码与提交历史只是参考材料，不是要直接照搬到 `NEW_BRANCH`。每次新的 upstream tag 都可能已经重构了相关模块，所以应当以 `CHANGED.md`、意图文档和旧分支行为为需求来源，基于当前 `TAG` 对应的代码结构重新实现。
 
+第一原则：**先确认 `upstream` 指向 OpenAI 官方仓库 `https://github.com/openai/codex.git`，再从 `upstream` 获取或查看 tags 来决定 `TAG`。**
+禁止只根据本地已有 branch、tag、提交信息，或上一次 reapply 的上下文，直接判断“最新 upstream tag 是什么”。
+
 ## Default Mode（用户没指定参数时）
 
 如果用户只是说类似 `$codex-upstream-reapply do it`，默认直接这样做，不再追问 tag / branch：
 
 1. `REMOTE=upstream`
-2. `TAG_PATTERN=rust-*`
-3. `TAG=最新稳定正式版 Rust tag`
+2. 先确认 `upstream` 就是 `https://github.com/openai/codex.git`
+3. 先从 `upstream` 获取或查看 `rust-*` tags，禁止跳过这一步
+4. `TAG_PATTERN=rust-*`
+5. `TAG=最新稳定正式版 Rust tag`
 说明：只接受精确匹配 `rust-vX.Y.Z` 的 tag，例如 `rust-v0.117.0`；忽略 `rust-v0.117.0-alpha.1`
-4. `OLD_BRANCH=当前分支`
+6. `OLD_BRANCH=当前分支`
 说明：用 `git branch --show-current` 或等价命令获取
-5. `NEW_BRANCH=feat/<TAG>`
-6. 如果当前分支已经等于 `TAG` 或 `feat/<TAG>`，说明已经对齐到最新正式版，直接停止，不再继续重实现流程
-7. 如果不一致，再执行后续 reapply 逻辑
+7. `NEW_BRANCH=feat/<TAG>`
+8. 如果当前分支已经等于 `TAG` 或 `feat/<TAG>`，说明已经对齐到最新正式版，直接停止，不再继续重实现流程
+9. 如果不一致，再执行后续 reapply 逻辑
 
 ## Inputs (每次明确这些东西)
 
@@ -35,6 +40,8 @@ description: 'Reapply a fork or secondary-development branch onto the latest sta
 - 可选：`OLD_BASE_TAG`（仅当基线推断不可靠时显式指定）
 
 ## Workflow (推荐：完全不 merge / 不 rebase 旧分支)
+
+真正开始执行 reapply 时，第一个动作必须是：确认 `upstream` 指向 OpenAI 官方仓库，并查看 `upstream` 的真实 `rust-*` tags。
 
 ### 0) Acceptance criteria (必读)
 
@@ -48,7 +55,28 @@ description: 'Reapply a fork or secondary-development branch onto the latest sta
 - 如果 `CHANGED.md` 记录的是这类共享 TUI 行为，文案应写成“用户可见行为要求”，并在需要时明确适用于 `tui` 与 `tui_app_server`，避免写成只对应某一个实现细节的说明。
 - 在 `codex-rs` 目录下执行 `cargo build -p codex-cli`，确认能正常构建。
 
-### 0) One-time setup（如果还没有）
+### 0) Confirm upstream and inspect tags first（强制第一步）
+
+- 先确认 `upstream` 存在且指向 `https://github.com/openai/codex.git`。
+- **在读取本地 branch / tag 状态、推断是否“已经对齐最新版本”之前，必须先 fetch 或 `ls-remote` 查看 `upstream` 的 `rust-*` tags。**
+- 禁止只根据本地已有 `rust-v*` tag、当前分支名、历史提交信息，直接判断最新 upstream tag。
+- 如果本地没有 `upstream`，先按下面的 one-time setup 添加，再继续。
+
+推荐命令：
+
+```bash
+git remote get-url upstream
+git ls-remote --tags --refs upstream 'rust-*'
+```
+
+如果需要把 tags 拉到本地再排序：
+
+```bash
+git fetch upstream 'refs/tags/rust-*:refs/tags/rust-*' --prune
+git for-each-ref --sort=-v:refname --format='%(refname:short)' 'refs/tags/rust-*'
+```
+
+### 1) One-time setup（如果还没有）
 
 确认是否已有 `origin`（fork）和 `upstream`（openai/codex），如没有再添加；已有就跳过 `remote add`：
 
@@ -58,13 +86,17 @@ git remote add origin <ORIGIN_GIT_URL>
 git remote add upstream https://github.com/openai/codex.git
 ```
 
-### 1) Freeze OLD_BRANCH (把现有改动“固化”为可回看的参考)
+### 2) Freeze OLD_BRANCH (把现有改动“固化”为可回看的参考)
 
 - 把工作区改动都提交到 `OLD_BRANCH`（包括你写的意图 Markdown）。
 - 建议把 `OLD_BRANCH` 推到你的 fork 远端（例如 `origin`），避免本地丢失。
 - 可选：打一个 snapshot tag/branch，方便以后回溯。
 
-### 2) Fetch tags & resolve TAG
+### 3) Resolve TAG from upstream tags
+
+这一步的前提是：你已经完成上面的“Confirm upstream and inspect tags first”，已经从 `upstream` 看过真实的 tag 列表。
+
+不要用“我本地已经有 `rust-v0.xxx.0` tag / `feat/rust-v0.xxx.0` 分支 / 之前做过一次 reapply”来代替这一步。
 
 ```bash
 git fetch upstream 'refs/tags/rust-*:refs/tags/rust-*' --prune
@@ -87,7 +119,7 @@ git for-each-ref --sort=-v:refname --format='%(refname:short)' 'refs/tags/rust-*
 
 如果用户明确指定了 tag，再按用户指定值覆盖默认值。
 
-### 3) Generate a re-implementation bundle & create NEW_BRANCH
+### 4) Generate a re-implementation bundle & create NEW_BRANCH
 
 用脚本生成“重实现材料包”（默认输出到 `/tmp/codex-upstream-reapply/...`），并从 `TAG` 创建 `NEW_BRANCH`：
 
@@ -138,7 +170,7 @@ bash .agents/skills/codex-upstream-reapply/scripts/start_from_tag.sh \
   --old-base-tag rust-vX.Y.Z
 ```
 
-### 4) Read OLD_BRANCH as reference (理解需求与意图，而不是直接套 patch)
+### 5) Read OLD_BRANCH as reference (理解需求与意图，而不是直接套 patch)
 
 从 bundle 里先读清楚“要实现什么”，再开始在 `NEW_BRANCH` 上写代码。
 
@@ -164,7 +196,7 @@ git diff OLD_BRANCH -- path/to/file
 git diff BASE_COMMIT..OLD_BRANCH -- path/to/file
 ```
 
-### 5) Re-implement on NEW_BRANCH
+### 6) Re-implement on NEW_BRANCH
 
 - 按“需求点/模块”拆分小 commit 逐步实现。
 - 以 `coverage-checklist.md` 为 per-file 兜底清单，避免遗漏当前分支的任何改动。
@@ -173,13 +205,13 @@ git diff BASE_COMMIT..OLD_BRANCH -- path/to/file
 - `collaboration_mode_presets` / `collaboration_modes` config override patch 已在 `rust-v0.128.0` 起退役：如果旧分支或 bundle 中仍包含该需求，不要继续移植；应以当前 `TAG` 的 upstream collaboration mode 行为为准，并删除 `README.md`、`CHANGED.md` 中对应说明。
 - 不跑测试；不要生成或更新任何测试文件/快照文件。
 
-### 5.1) Status header 规范（改动 TUI 状态栏时）
+### 6.1) Status header 规范（改动 TUI 状态栏时）
 
 - 状态栏是共享 TUI surface：如果 `codex-rs/tui` 与 `codex-rs/tui_app_server` 都渲染了这一层，默认两边都要同步修改，不能只改经典 `tui`。
 - 具体图标、颜色、segment 顺序、rate-limit summary 格式与刷新语义，统一遵循 `status-header` skill；这里不要再维护第二份会漂移的细节规范。
 - 如果当前仓库的 TUI 样式规范、lint 或现有封装与状态栏 skill 的示例写法冲突，优先遵循仓库本身的规则，但要保持相同的用户可见效果；不要为了强行对齐示例而引入 `clippy` 警告/报错，或去修改测试代码。
 
-### 6) Sanity checks
+### 7) Sanity checks
 
 比较“你最终在新分支做了哪些改动”（相对 `TAG`）：
 
@@ -192,7 +224,7 @@ git diff TAG..NEW_BRANCH
 
 更多对照方式（worktree、merge-base 对照等）见 `references/advanced.md`。
 
-### 7) Build (codex-rs)
+### 8) Build (codex-rs)
 
 在 `codex-rs` 目录下执行：
 
@@ -200,7 +232,7 @@ git diff TAG..NEW_BRANCH
 cargo build -p codex-cli
 ```
 
-### 8) Push and monitor
+### 9) Push and monitor
 
 完成 reapply 并提交后：
 
