@@ -1,82 +1,78 @@
-use std::ffi::OsStr;
 use std::path::Path;
-use std::sync::Arc;
-use std::sync::atomic::AtomicU64;
-use std::sync::atomic::Ordering;
+use std::path::PathBuf;
+use std::sync::mpsc;
 use std::thread;
+use std::thread::JoinHandle;
 use std::time::Duration;
-
-use notify::Config;
-use notify::Event;
-use notify::EventKind;
-use notify::RecommendedWatcher;
-use notify::RecursiveMode;
-use notify::Watcher;
+use std::time::SystemTime;
 
 use crate::app_event::AppEvent;
 use crate::app_event_sender::AppEventSender;
 
-const AUTH_WATCH_DEBOUNCE: Duration = Duration::from_millis(250);
+const AUTH_POLL_INTERVAL: Duration = Duration::from_secs(1);
 
 pub(crate) struct AuthWatch {
-    _watcher: RecommendedWatcher,
+    stop_tx: Option<mpsc::Sender<()>>,
+    join_handle: Option<JoinHandle<()>>,
 }
 
 impl AuthWatch {
-    pub(crate) fn start(
-        codex_home: &Path,
-        app_event_tx: AppEventSender,
-    ) -> notify::Result<Option<Self>> {
+    pub(crate) fn start(codex_home: &Path, app_event_tx: AppEventSender) -> Self {
         let auth_path = codex_home.join("auth.json");
-        // Avoid watching all of CODEX_HOME just to reload auth state for one file.
-        if !auth_path.is_file() {
-            return Ok(None);
+        let (stop_tx, stop_rx) = mpsc::channel();
+        let join_handle = thread::spawn(move || poll_auth_file(auth_path, app_event_tx, stop_rx));
+        Self {
+            stop_tx: Some(stop_tx),
+            join_handle: Some(join_handle),
         }
-        let watched_auth_path = auth_path.clone();
-        let auth_file_name = auth_path.file_name().map(OsStr::to_os_string);
-        let generation = Arc::new(AtomicU64::new(0));
-
-        let mut watcher = notify::recommended_watcher(move |res| match res {
-            Ok(event) => {
-                if !is_auth_json_event(&event, auth_path.as_path(), auth_file_name.as_deref()) {
-                    return;
-                }
-
-                let event_generation = generation.fetch_add(1, Ordering::SeqCst) + 1;
-                let generation = Arc::clone(&generation);
-                let app_event_tx = app_event_tx.clone();
-                thread::spawn(move || {
-                    thread::sleep(AUTH_WATCH_DEBOUNCE);
-                    if generation.load(Ordering::SeqCst) == event_generation {
-                        app_event_tx.send(AppEvent::AuthFileChanged);
-                    }
-                });
-            }
-            Err(err) => {
-                tracing::warn!(%err, "auth.json watcher error");
-            }
-        })?;
-
-        watcher.configure(Config::default())?;
-        watcher.watch(watched_auth_path.as_path(), RecursiveMode::NonRecursive)?;
-
-        Ok(Some(Self { _watcher: watcher }))
     }
 }
 
-fn is_auth_json_event(event: &Event, auth_path: &Path, auth_file_name: Option<&OsStr>) -> bool {
-    if !is_relevant_kind(event.kind) {
-        return false;
+impl Drop for AuthWatch {
+    fn drop(&mut self) {
+        if let Some(stop_tx) = self.stop_tx.take() {
+            let _ = stop_tx.send(());
+        }
+        if let Some(join_handle) = self.join_handle.take() {
+            let _ = join_handle.join();
+        }
     }
-
-    event.paths.iter().any(|path| {
-        path == auth_path || auth_file_name.is_some_and(|name| path.file_name() == Some(name))
-    })
 }
 
-fn is_relevant_kind(kind: EventKind) -> bool {
-    matches!(
-        kind,
-        EventKind::Create(_) | EventKind::Modify(_) | EventKind::Remove(_)
-    )
+#[derive(Clone, Debug, Eq, PartialEq)]
+struct AuthFileState {
+    is_file: bool,
+    len: u64,
+    modified: Option<SystemTime>,
+}
+
+fn poll_auth_file(auth_path: PathBuf, app_event_tx: AppEventSender, stop_rx: mpsc::Receiver<()>) {
+    let mut last_state = auth_file_state(auth_path.as_path());
+    loop {
+        match stop_rx.recv_timeout(AUTH_POLL_INTERVAL) {
+            Ok(()) | Err(mpsc::RecvTimeoutError::Disconnected) => break,
+            Err(mpsc::RecvTimeoutError::Timeout) => {}
+        }
+
+        let next_state = auth_file_state(auth_path.as_path());
+        if next_state != last_state {
+            last_state = next_state;
+            app_event_tx.send(AppEvent::AuthFileChanged);
+        }
+    }
+}
+
+fn auth_file_state(auth_path: &Path) -> AuthFileState {
+    match std::fs::metadata(auth_path) {
+        Ok(metadata) if metadata.is_file() => AuthFileState {
+            is_file: true,
+            len: metadata.len(),
+            modified: metadata.modified().ok(),
+        },
+        _ => AuthFileState {
+            is_file: false,
+            len: 0,
+            modified: None,
+        },
+    }
 }

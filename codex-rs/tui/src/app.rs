@@ -931,11 +931,10 @@ impl App {
         let startup_started_at = Instant::now();
         let (app_event_tx, mut app_event_rx) = unbounded_channel();
         let app_event_tx = AppEventSender::new(app_event_tx);
-        let auth_watch = AuthWatch::start(config.codex_home.as_path(), app_event_tx.clone())
-            .unwrap_or_else(|err| {
-                tracing::warn!(%err, "failed to watch auth.json for changes");
-                None
-            });
+        let auth_watch = Some(AuthWatch::start(
+            config.codex_home.as_path(),
+            app_event_tx.clone(),
+        ));
         emit_project_config_warnings(&app_event_tx, &config);
         emit_system_bwrap_warning(&app_event_tx, &config);
         tui.set_notification_settings(
