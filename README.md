@@ -22,12 +22,6 @@ cd codex-rs
 cargo run --bin codex
 ```
 
-## Temporary Workaround
-
-SQLite log sink ignores `RUST_LOG` and hardcodes TRACE-level persistence, causing excessive WAL writes regardless of configured log level. See [openai/codex issue #17320](https://github.com/openai/codex/issues/17320).
-
-This fork disables the persistent log DB sink as a temporary workaround until upstream resolves the filtering issue.
-
 ## Features
 
 > Full change log: see [CHANGED.md](./CHANGED.md).
@@ -65,7 +59,7 @@ This feature helps manage follow-up messages when quota or rate limits are reach
 
 Codex now reloads authentication after external `auth.json` writes settle, so account changes can be picked up without restarting at safe boundaries.
 
-* **TUI**: Watches `auth.json` for changes via filesystem notifications, with trailing debounce so reloads happen after writes settle. Auth is deferred until any active task completes; transient read errors do not clear cached auth.
+* **TUI**: Tracks `auth.json` changes without watching the whole `CODEX_HOME` directory: when the file exists, Codext watches the file directly; when it is absent, Codext lightly polls for it to appear again. Auth is deferred until any active task completes; transient read errors do not clear cached auth.
 * **App-server**: Reloads auth before `thread/start`, `thread/resume`, and `turn/start` when no turn is running, so the new account is picked up at the next safe request boundary.
 
 This enables auth refresh for TUI and Codex App flows when external tools update `auth.json`.
