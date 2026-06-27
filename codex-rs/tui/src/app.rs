@@ -932,7 +932,6 @@ impl App {
         let (app_event_tx, mut app_event_rx) = unbounded_channel();
         let app_event_tx = AppEventSender::new(app_event_tx);
         let auth_watch = AuthWatch::start(config.codex_home.as_path(), app_event_tx.clone())
-            .map(Some)
             .unwrap_or_else(|err| {
                 tracing::warn!(%err, "failed to watch auth.json for changes");
                 None

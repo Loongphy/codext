@@ -23,8 +23,16 @@ pub(crate) struct AuthWatch {
 }
 
 impl AuthWatch {
-    pub(crate) fn start(codex_home: &Path, app_event_tx: AppEventSender) -> notify::Result<Self> {
+    pub(crate) fn start(
+        codex_home: &Path,
+        app_event_tx: AppEventSender,
+    ) -> notify::Result<Option<Self>> {
         let auth_path = codex_home.join("auth.json");
+        // Avoid watching all of CODEX_HOME just to reload auth state for one file.
+        if !auth_path.is_file() {
+            return Ok(None);
+        }
+        let watched_auth_path = auth_path.clone();
         let auth_file_name = auth_path.file_name().map(OsStr::to_os_string);
         let generation = Arc::new(AtomicU64::new(0));
 
@@ -50,9 +58,9 @@ impl AuthWatch {
         })?;
 
         watcher.configure(Config::default())?;
-        watcher.watch(codex_home, RecursiveMode::NonRecursive)?;
+        watcher.watch(watched_auth_path.as_path(), RecursiveMode::NonRecursive)?;
 
-        Ok(Self { _watcher: watcher })
+        Ok(Some(Self { _watcher: watcher }))
     }
 }
 
