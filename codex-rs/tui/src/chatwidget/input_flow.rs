@@ -18,6 +18,7 @@ impl ChatWidget {
                 text_elements,
             } => {
                 let user_message = self.user_message_from_submission(text, text_elements);
+                self.clear_pending_usage_limit_resume_turn();
                 if user_message.text.is_empty()
                     && user_message.local_images.is_empty()
                     && user_message.remote_image_urls.is_empty()
@@ -51,6 +52,7 @@ impl ChatWidget {
                 pending_pastes,
             } => {
                 let user_message = self.user_message_from_submission(text, text_elements);
+                self.clear_pending_usage_limit_resume_turn();
                 self.queue_user_message_with_options(user_message, action, pending_pastes);
             }
             InputResult::Command(cmd) => {
@@ -99,9 +101,9 @@ impl ChatWidget {
         action: QueuedInputAction,
         pending_pastes: Vec<(String, String)>,
     ) {
-        if !self.is_session_configured()
+        if self.input_queue.suppress_queue_autosend
+            || !self.is_session_configured()
             || self.is_user_turn_pending_or_running()
-            || self.input_queue.suppress_queue_autosend
         {
             self.input_queue
                 .queued_user_messages
@@ -124,10 +126,27 @@ impl ChatWidget {
         if self.input_queue.suppress_queue_autosend {
             return false;
         }
+        if self.pending_auth_reload_attempt.is_some() {
+            return false;
+        }
+        if self.usage_limit_resume_waiting_for_auth_reload
+            && self.pending_usage_limit_resume_turn.is_some()
+        {
+            return false;
+        }
         if self.is_user_turn_pending_or_running() {
             return false;
         }
         let mut submitted_follow_up = false;
+        if let Some(user_message) = self.pending_usage_limit_resume_turn.take() {
+            self.usage_limit_resume_waiting_for_auth_reload = false;
+            self.reasoning_buffer.clear();
+            self.full_reasoning_buffer.clear();
+            self.set_status_header(String::from("Working"));
+            self.submit_user_message(user_message);
+            self.refresh_pending_input_preview();
+            return true;
+        }
         while !self.is_user_turn_pending_or_running() {
             let Some((queued_message, history_record)) = self.pop_next_queued_user_message() else {
                 break;
