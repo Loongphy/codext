@@ -55,7 +55,7 @@ Implementation must follow the status-header skill .agents/skills/status-header/
 - When a reload changes auth, loaded threads invalidate their cached model transport state so a reused WebSocket session created under the previous account is not used for the next turn.
 - The app-server also refreshes cloud requirements/default residency state and emits `AccountUpdated` after a changed reload so app UI account state follows the new snapshot.
 - Reapply notes: keep `reload_auth_from_storage_if_idle` wired into all three request entry points, preserve the idle guard, and preserve the invalidation chain `ThreadManager::invalidate_model_transport_caches` -> `CodexThread::invalidate_model_transport_cache` -> `ModelClient::invalidate_cached_transport_state`.
-- Reapply validation: run `cargo test --offline -p codex-login reload_detects_chatgpt_workspace_switch`, `cargo test -p codex-core invalidate_cached_transport_state_clears_cached_websocket_session`, and `cargo check --offline -p codex-app-server --lib` after merging upstream auth/app-server changes.
+- Reapply validation for this branch follows the temporary guardrails in `AGENTS.md`: do not run tests; validate with `cd codex-rs && cargo build -p codex-cli`.
 
 ## TUI exit resume command
 
