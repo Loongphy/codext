@@ -585,6 +585,12 @@ if ! git diff --cached --quiet; then
   fi
 fi
 
+release_audit_script="${script_dir}/check_release_artifact_parity.sh"
+if has_npm_release_reapply "${OLD_BRANCH}" && [[ -x "${release_audit_script}" ]]; then
+  echo "[INFO] Auditing release artifact parity..."
+  "${release_audit_script}"
+fi
+
 echo "[OK] New branch created: ${NEW_BRANCH}"
 echo "[OK] Bundle: ${OUT_DIR}"
 echo

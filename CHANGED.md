@@ -61,3 +61,8 @@ Implementation must follow the status-header skill .agents/skills/status-header/
 
 - Added a fork requirement that user-facing resume hints use `codext resume <session>` / `codext resume <thread-name>` instead of `codex resume ...`.
 - This includes the final resume hint shown after exiting the TUI and other resume guidance surfaced inside the TUI.
+
+## Release artifact parity
+
+- Release builds and npm platform packages ship `codex-code-mode-host` beside the `codext` CLI binary so code mode can start from installed and locally packaged artifacts.
+- The upstream release matrix is audited during reapply instead of assuming that copying the previous fork workflow preserves all companion binaries.

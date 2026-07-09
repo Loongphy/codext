@@ -48,6 +48,11 @@ BINARY_COMPONENTS = {
         dest_dir="codex",
         binary_basename="codex",
     ),
+    "codex-code-mode-host": BinaryComponent(
+        artifact_prefix="codex-code-mode-host",
+        dest_dir="codex",
+        binary_basename="codex-code-mode-host",
+    ),
     "codex-responses-api-proxy": BinaryComponent(
         artifact_prefix="codex-responses-api-proxy",
         dest_dir="codex-responses-api-proxy",
@@ -158,6 +163,7 @@ def main() -> int:
 
     components = args.components or [
         "codex",
+        "codex-code-mode-host",
         "codex-windows-sandbox-setup",
         "codex-command-runner",
         "rg",
@@ -260,6 +266,7 @@ def fetch_rg(
 
 
 def _download_artifacts(workflow_id: str, dest_dir: Path) -> None:
+    repository = os.environ.get("CODEX_REPOSITORY", "Loongphy/codext")
     cmd = [
         "gh",
         "run",
@@ -267,7 +274,7 @@ def _download_artifacts(workflow_id: str, dest_dir: Path) -> None:
         "--dir",
         str(dest_dir),
         "--repo",
-        "openai/codex",
+        repository,
         workflow_id,
     ]
     subprocess.check_call(cmd)
@@ -314,8 +321,19 @@ def _install_single_binary(
     artifact_subdir = artifacts_dir / target
     archive_name = _archive_name_for_target(component.artifact_prefix, target)
     archive_path = artifact_subdir / archive_name
-    if not archive_path.exists():
-        raise FileNotFoundError(f"Expected artifact not found: {archive_path}")
+    raw_binary_name = (
+        f"{component.binary_basename}.exe"
+        if "windows" in target
+        else component.binary_basename
+    )
+    raw_candidates = (
+        artifacts_dir / f"codex-bin-{target}" / raw_binary_name,
+        artifacts_dir / target / raw_binary_name,
+    )
+    raw_path = next((path for path in raw_candidates if path.exists()), None)
+    if not archive_path.exists() and raw_path is None:
+        expected_paths = ", ".join(str(path) for path in (archive_path, *raw_candidates))
+        raise FileNotFoundError(f"Expected artifact not found; checked: {expected_paths}")
 
     dest_dir = vendor_dir / target / component.dest_dir
     dest_dir.mkdir(parents=True, exist_ok=True)
@@ -325,7 +343,10 @@ def _install_single_binary(
     )
     dest = dest_dir / binary_name
     dest.unlink(missing_ok=True)
-    extract_archive(archive_path, "zst", None, dest)
+    if archive_path.exists():
+        extract_archive(archive_path, "zst", None, dest)
+    else:
+        shutil.copy2(raw_path, dest)
     if "windows" not in target:
         dest.chmod(0o755)
     return dest

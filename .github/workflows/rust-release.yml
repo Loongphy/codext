@@ -170,7 +170,11 @@ jobs:
 
       - name: Cargo build
         shell: bash
-        run: cargo build --locked --target ${{ matrix.target }} --release -p codex-cli --bin codex
+        run: |
+          cargo build --locked --target ${{ matrix.target }} --release \
+            -p codex-cli \
+            --bin codex \
+            --bin codex-code-mode-host
 
       - name: Stage Unix binary artifact
         shell: bash
@@ -180,6 +184,8 @@ jobs:
           rm -rf "${staged_dir}"
           mkdir -p "${staged_dir}"
           cp "target/${{ matrix.target }}/release/codex" "${staged_dir}/codex"
+          cp "target/${{ matrix.target }}/release/codex-code-mode-host" \
+            "${staged_dir}/codex-code-mode-host"
 
       - name: Archive Linux symbols and strip staged binary
         if: ${{ contains(matrix.target, 'unknown-linux-musl') }}
@@ -192,12 +198,14 @@ jobs:
             --artifact-name "${{ matrix.target }}" \
             --release-dir "${staged_dir}" \
             --archive-dir "symbols-dist/${{ matrix.target }}" \
-            --binaries "codex"
+            --binaries "codex codex-code-mode-host"
 
       - uses: actions/upload-artifact@v7
         with:
           name: codex-bin-${{ matrix.target }}
-          path: ${{ runner.temp }}/release-bin/${{ matrix.target }}/codex
+          path: |
+            ${{ runner.temp }}/release-bin/${{ matrix.target }}/codex
+            ${{ runner.temp }}/release-bin/${{ matrix.target }}/codex-code-mode-host
           if-no-files-found: error
 
       - if: ${{ contains(matrix.target, 'unknown-linux-musl') }}
@@ -246,6 +254,7 @@ jobs:
             -p codex-cli \
             -p codex-windows-sandbox \
             --bin codex \
+            --bin codex-code-mode-host \
             --bin codex-windows-sandbox-setup \
             --bin codex-command-runner
 
@@ -254,6 +263,7 @@ jobs:
           name: codex-bin-${{ matrix.target }}
           path: |
             codex-rs/target/${{ matrix.target }}/release/codex.exe
+            codex-rs/target/${{ matrix.target }}/release/codex-code-mode-host.exe
             codex-rs/target/${{ matrix.target }}/release/codex-windows-sandbox-setup.exe
             codex-rs/target/${{ matrix.target }}/release/codex-command-runner.exe
           if-no-files-found: error
@@ -322,26 +332,43 @@ jobs:
 
           linux_stage="$(mktemp -d "${RUNNER_TEMP}/release-linux-x64-XXXXXX")"
           cp "${artifacts_root}/codex-bin-x86_64-unknown-linux-musl/codex" "${linux_stage}/codext"
+          cp "${artifacts_root}/codex-bin-x86_64-unknown-linux-musl/codex-code-mode-host" \
+            "${linux_stage}/codex-code-mode-host"
           chmod +x "${linux_stage}/codext"
-          tar -C "${linux_stage}" -czf "${out_dir}/codext-linux-x64-${VERSION}.tar.gz" codext
+          chmod +x "${linux_stage}/codex-code-mode-host"
+          tar -C "${linux_stage}" -czf "${out_dir}/codext-linux-x64-${VERSION}.tar.gz" \
+            codext codex-code-mode-host
 
           linux_arm64_stage="$(mktemp -d "${RUNNER_TEMP}/release-linux-arm64-XXXXXX")"
           cp "${artifacts_root}/codex-bin-aarch64-unknown-linux-musl/codex" "${linux_arm64_stage}/codext"
+          cp "${artifacts_root}/codex-bin-aarch64-unknown-linux-musl/codex-code-mode-host" \
+            "${linux_arm64_stage}/codex-code-mode-host"
           chmod +x "${linux_arm64_stage}/codext"
-          tar -C "${linux_arm64_stage}" -czf "${out_dir}/codext-linux-arm64-${VERSION}.tar.gz" codext
+          chmod +x "${linux_arm64_stage}/codex-code-mode-host"
+          tar -C "${linux_arm64_stage}" -czf "${out_dir}/codext-linux-arm64-${VERSION}.tar.gz" \
+            codext codex-code-mode-host
 
           darwin_x64_stage="$(mktemp -d "${RUNNER_TEMP}/release-darwin-x64-XXXXXX")"
           cp "${artifacts_root}/codex-bin-x86_64-apple-darwin/codex" "${darwin_x64_stage}/codext"
+          cp "${artifacts_root}/codex-bin-x86_64-apple-darwin/codex-code-mode-host" \
+            "${darwin_x64_stage}/codex-code-mode-host"
           chmod +x "${darwin_x64_stage}/codext"
-          tar -C "${darwin_x64_stage}" -czf "${out_dir}/codext-darwin-x64-${VERSION}.tar.gz" codext
+          chmod +x "${darwin_x64_stage}/codex-code-mode-host"
+          tar -C "${darwin_x64_stage}" -czf "${out_dir}/codext-darwin-x64-${VERSION}.tar.gz" \
+            codext codex-code-mode-host
 
           darwin_arm64_stage="$(mktemp -d "${RUNNER_TEMP}/release-darwin-arm64-XXXXXX")"
           cp "${artifacts_root}/codex-bin-aarch64-apple-darwin/codex" "${darwin_arm64_stage}/codext"
+          cp "${artifacts_root}/codex-bin-aarch64-apple-darwin/codex-code-mode-host" \
+            "${darwin_arm64_stage}/codex-code-mode-host"
           chmod +x "${darwin_arm64_stage}/codext"
-          tar -C "${darwin_arm64_stage}" -czf "${out_dir}/codext-darwin-arm64-${VERSION}.tar.gz" codext
+          chmod +x "${darwin_arm64_stage}/codex-code-mode-host"
+          tar -C "${darwin_arm64_stage}" -czf "${out_dir}/codext-darwin-arm64-${VERSION}.tar.gz" \
+            codext codex-code-mode-host
 
           windows_stage="$(mktemp -d "${RUNNER_TEMP}/release-win32-x64-XXXXXX")"
           cp "${artifacts_root}/codex-bin-x86_64-pc-windows-msvc/codex.exe" "${windows_stage}/codext.exe"
+          cp "${artifacts_root}/codex-bin-x86_64-pc-windows-msvc/codex-code-mode-host.exe" "${windows_stage}/codex-code-mode-host.exe"
           cp "${artifacts_root}/codex-bin-x86_64-pc-windows-msvc/codex-windows-sandbox-setup.exe" "${windows_stage}/codex-windows-sandbox-setup.exe"
           cp "${artifacts_root}/codex-bin-x86_64-pc-windows-msvc/codex-command-runner.exe" "${windows_stage}/codex-command-runner.exe"
           (
@@ -433,15 +460,25 @@ jobs:
 
           cp "${artifacts_root}/codex-bin-x86_64-unknown-linux-musl/codex" \
             "${vendor_root}/x86_64-unknown-linux-musl/codex/codex"
+          cp "${artifacts_root}/codex-bin-x86_64-unknown-linux-musl/codex-code-mode-host" \
+            "${vendor_root}/x86_64-unknown-linux-musl/codex/codex-code-mode-host"
           cp "${artifacts_root}/codex-bin-aarch64-unknown-linux-musl/codex" \
             "${vendor_root}/aarch64-unknown-linux-musl/codex/codex"
+          cp "${artifacts_root}/codex-bin-aarch64-unknown-linux-musl/codex-code-mode-host" \
+            "${vendor_root}/aarch64-unknown-linux-musl/codex/codex-code-mode-host"
           cp "${artifacts_root}/codex-bin-x86_64-apple-darwin/codex" \
             "${vendor_root}/x86_64-apple-darwin/codex/codex"
+          cp "${artifacts_root}/codex-bin-x86_64-apple-darwin/codex-code-mode-host" \
+            "${vendor_root}/x86_64-apple-darwin/codex/codex-code-mode-host"
           cp "${artifacts_root}/codex-bin-aarch64-apple-darwin/codex" \
             "${vendor_root}/aarch64-apple-darwin/codex/codex"
+          cp "${artifacts_root}/codex-bin-aarch64-apple-darwin/codex-code-mode-host" \
+            "${vendor_root}/aarch64-apple-darwin/codex/codex-code-mode-host"
 
           cp "${artifacts_root}/codex-bin-x86_64-pc-windows-msvc/codex.exe" \
             "${vendor_root}/x86_64-pc-windows-msvc/codex/codex.exe"
+          cp "${artifacts_root}/codex-bin-x86_64-pc-windows-msvc/codex-code-mode-host.exe" \
+            "${vendor_root}/x86_64-pc-windows-msvc/codex/codex-code-mode-host.exe"
           cp "${artifacts_root}/codex-bin-x86_64-pc-windows-msvc/codex-windows-sandbox-setup.exe" \
             "${vendor_root}/x86_64-pc-windows-msvc/codex/codex-windows-sandbox-setup.exe"
           cp "${artifacts_root}/codex-bin-x86_64-pc-windows-msvc/codex-command-runner.exe" \

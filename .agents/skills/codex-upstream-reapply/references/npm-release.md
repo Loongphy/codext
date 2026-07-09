@@ -29,6 +29,29 @@ Delete all `.github/workflows/*` that OLD_BRANCH deleted (i.e. workflows carried
 
 After copying rust-release.yml from OLD_BRANCH, check upstream TAG's release CI. Actively adapt to upstream's current structure — do not cling to OLD_BRANCH's layout if upstream has moved on. The goal: working release pipeline with current upstream tooling, plus our fork-specific names (package, command, dist-tag).
 
+Trace every runtime binary from build to package before committing:
+
+1. Compare the upstream TAG workflow's `cargo --bin` matrix with the fork workflow.
+2. Follow each binary through build output, uploaded artifact, standalone archive, vendor tree, and npm platform package.
+3. Include `codex-code-mode-host` anywhere the CLI is shipped. It must sit beside `codex`/`codext`; `cargo build -p codex-cli` does not build it.
+4. Keep Windows-only helpers (`codex-windows-sandbox-setup.exe`, `codex-command-runner.exe`) and Linux resources such as `bwrap` aligned with the current release scripts.
+
+Run the static parity audit after the carry-over copy:
+
+```bash
+bash .agents/skills/codex-upstream-reapply/scripts/check_release_artifact_parity.sh
+```
+
+For local execution, build the CLI and companion host with the same profile:
+
+```bash
+cd codex-rs
+cargo build --release -p codex-cli --bin codex
+cargo build --release -p codex-code-mode-host
+```
+
+Debug builds work the same way; `--release` is not what makes code mode available.
+
 ## After mandatory steps
 
 Only then evaluate upstream TAG's new/changed CI files. If they don't affect the release pipeline, ignore them. If they must be merged, do minimal integration without changing package names or command names.
