@@ -900,6 +900,26 @@ impl AccountRequestProcessor {
     ) -> Result<GetAccountResponse, JSONRPCErrorError> {
         let do_refresh = params.refresh_token;
 
+        if params.reload_auth_from_storage {
+            let status = self.auth_manager.reload_with_status().await;
+            match handle_auth_reload_status(
+                status,
+                &self.auth_manager,
+                &self.thread_manager,
+                &self.config_manager,
+                &self.outgoing,
+                &self.config.chatgpt_base_url,
+                "account/get",
+            )
+            .await
+            {
+                AuthReloadStatus::Reloaded { .. } => {}
+                AuthReloadStatus::Failed => {
+                    return Err(internal_error("failed to reload auth from storage"));
+                }
+            }
+        }
+
         self.refresh_token_if_requested(do_refresh).await;
 
         let provider = create_model_provider(

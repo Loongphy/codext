@@ -816,6 +816,13 @@ impl App {
             AppEvent::ClearThreadGoal { thread_id } => {
                 self.clear_thread_goal(app_server, thread_id).await;
             }
+            AppEvent::AuthFileChanged => {
+                self.handle_auth_file_changed(app_server, /*attempt*/ 1)
+                    .await;
+            }
+            AppEvent::AuthFileChangedRetry { attempt } => {
+                self.handle_auth_file_changed(app_server, attempt).await;
+            }
             AppEvent::SendAddCreditsNudgeEmail { credit_type } => {
                 if self
                     .chat_widget
@@ -883,6 +890,12 @@ impl App {
                                 }),
                             );
                         }
+                        RateLimitRefreshOrigin::BackgroundPoll => {
+                            for snapshot in snapshots {
+                                self.chat_widget.on_rate_limit_snapshot(Some(snapshot));
+                            }
+                            tui.frame_requester().schedule_frame();
+                        }
                     }
                 }
                 Err(err) => {
@@ -922,6 +935,7 @@ impl App {
                                 Err(err),
                             );
                         }
+                        RateLimitRefreshOrigin::BackgroundPoll => {}
                     }
                 }
             },
@@ -2148,6 +2162,10 @@ impl App {
                 {
                     tui.frame_requester().schedule_frame();
                 }
+            }
+            AppEvent::StatusHeaderGitStatusUpdated { cwd, summary } => {
+                self.chat_widget.set_status_header_git_status(cwd, summary);
+                tui.frame_requester().schedule_frame();
             }
             AppEvent::StatusLineSetupCancelled => {
                 self.chat_widget.cancel_status_line_setup();

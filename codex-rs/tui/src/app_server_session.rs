@@ -384,10 +384,25 @@ impl AppServerSession {
                 request_id: account_request_id,
                 params: GetAccountParams {
                     refresh_token: false,
+                    reload_auth_from_storage: false,
                 },
             })
             .await
             .map_err(|err| bootstrap_request_error("account/read failed during TUI bootstrap", err))
+    }
+
+    pub(crate) async fn reload_account_from_storage(&mut self) -> Result<GetAccountResponse> {
+        let account_request_id = self.next_request_id();
+        self.client
+            .request_typed(ClientRequest::GetAccount {
+                request_id: account_request_id,
+                params: GetAccountParams {
+                    refresh_token: false,
+                    reload_auth_from_storage: true,
+                },
+            })
+            .await
+            .wrap_err("account/read failed while reloading auth from storage")
     }
 
     pub(crate) async fn external_agent_config_detect(
@@ -1197,6 +1212,7 @@ pub(crate) async fn start_thread_with_request_handle(
 pub(crate) fn status_account_display_from_auth_mode(
     auth_mode: Option<AuthMode>,
     plan_type: Option<codex_protocol::account::PlanType>,
+    email: Option<String>,
 ) -> Option<StatusAccountDisplay> {
     match auth_mode {
         Some(AuthMode::ApiKey) => Some(StatusAccountDisplay::ApiKey),
@@ -1204,11 +1220,35 @@ pub(crate) fn status_account_display_from_auth_mode(
         | Some(AuthMode::ChatgptAuthTokens)
         | Some(AuthMode::AgentIdentity)
         | Some(AuthMode::PersonalAccessToken) => Some(StatusAccountDisplay::ChatGpt {
-            email: None,
+            email,
             plan: plan_type.map(plan_type_display_name),
         }),
         Some(AuthMode::Headers) | Some(AuthMode::BedrockApiKey) => None,
         None => None,
+    }
+}
+
+pub(crate) fn account_state_from_get_account_response(
+    account: &GetAccountResponse,
+) -> (
+    Option<StatusAccountDisplay>,
+    Option<codex_protocol::account::PlanType>,
+    bool,
+    bool,
+) {
+    match account.account.as_ref() {
+        Some(Account::ApiKey {}) => (Some(StatusAccountDisplay::ApiKey), None, false, false),
+        Some(Account::Chatgpt { email, plan_type }) => (
+            Some(StatusAccountDisplay::ChatGpt {
+                email: email.clone(),
+                plan: Some(plan_type_display_name(*plan_type)),
+            }),
+            Some(*plan_type),
+            true,
+            true,
+        ),
+        Some(Account::AmazonBedrock { .. }) => (None, None, false, false),
+        None => (None, None, false, false),
     }
 }
 

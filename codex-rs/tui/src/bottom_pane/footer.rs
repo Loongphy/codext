@@ -900,6 +900,7 @@ fn shortcut_overlay_lines(state: ShortcutsState) -> Vec<Line<'static>> {
     let mut queue_message_tab = Line::from("");
     let mut file_paths = Line::from("");
     let mut paste_image = Line::from("");
+    let mut copy_draft = Line::from("");
     let mut external_editor = Line::from("");
     let mut edit_previous = Line::from("");
     let mut history_search = Line::from("");
@@ -918,6 +919,7 @@ fn shortcut_overlay_lines(state: ShortcutsState) -> Vec<Line<'static>> {
                 ShortcutId::QueueMessageTab => queue_message_tab = text,
                 ShortcutId::FilePaths => file_paths = text,
                 ShortcutId::PasteImage => paste_image = text,
+                ShortcutId::CopyDraft => copy_draft = text,
                 ShortcutId::ExternalEditor => external_editor = text,
                 ShortcutId::EditPrevious => edit_previous = text,
                 ShortcutId::HistorySearch => history_search = text,
@@ -937,6 +939,7 @@ fn shortcut_overlay_lines(state: ShortcutsState) -> Vec<Line<'static>> {
         queue_message_tab,
         file_paths,
         paste_image,
+        copy_draft,
         external_editor,
         edit_previous,
         history_search,
@@ -1027,6 +1030,7 @@ enum ShortcutId {
     QueueMessageTab,
     FilePaths,
     PasteImage,
+    CopyDraft,
     ExternalEditor,
     EditPrevious,
     HistorySearch,
@@ -1096,6 +1100,7 @@ impl ShortcutDescriptor {
             | ShortcutId::ShellCommands
             | ShortcutId::FilePaths
             | ShortcutId::PasteImage
+            | ShortcutId::CopyDraft
             | ShortcutId::Quit
             | ShortcutId::ChangeMode => self.binding_for(state).map(|binding| binding.key),
         }?;
@@ -1200,6 +1205,15 @@ const SHORTCUTS: &[ShortcutDescriptor] = &[
         ],
         prefix: "",
         label: " to paste images",
+    },
+    ShortcutDescriptor {
+        id: ShortcutId::CopyDraft,
+        bindings: &[ShortcutBinding {
+            key: key_hint::ctrl_shift(KeyCode::Char('c')),
+            condition: DisplayCondition::Always,
+        }],
+        prefix: "",
+        label: " to copy draft",
     },
     ShortcutDescriptor {
         id: ShortcutId::ExternalEditor,
