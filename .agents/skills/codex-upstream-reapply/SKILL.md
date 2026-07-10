@@ -54,7 +54,7 @@ description: 'Reapply a fork or secondary-development branch onto the latest sta
 - 对于用户可见的 TUI 功能，如果 `codex-rs/tui` 与 `codex-rs/tui_app_server` 都存在对应的平行实现，则必须同步落地两边；不能只改其中一边就判定该需求已完成，除非 upstream 已明确删除其一，或你能在当前 tag 的代码里给出清晰的“不需要同步”的理由。
 - 如果 `CHANGED.md` 记录的是这类共享 TUI 行为，文案应写成“用户可见行为要求”，并在需要时明确适用于 `tui` 与 `tui_app_server`，避免写成只对应某一个实现细节的说明。
 - 在 `codex-rs` 目录下执行 `cargo build -p codex-cli`，确认能正常构建。
-- 如果本次包含 npm / release / code-mode 相关改动，必须额外检查发布产物中的伴随二进制。`cargo build -p codex-cli` 只构建 CLI，不会自动构建 `codex-code-mode-host`；至少用同一 profile 构建并核对 `codex` 与 `codex-code-mode-host` 位于同一目录。
+- 如果本次包含 npm / release / CI 相关改动，必须在 npm/release 工作完成、准备 commit/push 时读取并执行 `references/release-ci-sync.md`。该文档以 upstream old-tag/new-tag diff 为依据，只处理 build artifacts、GitHub Release、npm Release 三类变化；不要在主 skill 中硬编码某个 upstream binary。
 
 ### 0) Confirm upstream and inspect tags first（强制第一步）
 
@@ -148,11 +148,11 @@ bash .agents/skills/codex-upstream-reapply/scripts/start_from_tag.sh \
 - `coverage-checklist.md`：把旧分支里每个变更路径都列成 checklist，并标注它是“脚本自动带过去”还是“必须手动重实现”
 -（默认）复制所有“变更过的 Markdown 意图文档”的旧版内容到 bundle 里
 -（可选）用 `--copy-all` 复制所有变更文件的旧版内容（用于离线阅读）
-并且会固定复制 `OLD_BRANCH` 的 `AGENTS.md`、`README.md`、`CHANGED.md`、`.agents/skills/` 到 `NEW_BRANCH`；复制后脚本还会刷新 `AGENTS.md` 里的临时 reapply guardrails。对于 npm / release / CI 相关改动，则会按 `OLD_BRANCH` 相对基线 tag 的 git changes 自动搬运，包括删除。只要 `OLD_BRANCH` 带有 `references/npm-release.md` 对应的 skill 规则，就必须执行 npm release 文档里定义的强制动作，而不是只把它当成“默认原则”。
+并且会固定复制 `OLD_BRANCH` 的 `AGENTS.md`、`README.md`、`CHANGED.md`、`.agents/skills/` 到 `NEW_BRANCH`；复制后脚本还会刷新 `AGENTS.md` 里的临时 reapply guardrails。对于 npm / release / CI 相关改动，则会按 `OLD_BRANCH` 相对基线 tag 的 git changes 自动搬运，包括删除。只要 `OLD_BRANCH` 带有 `references/npm-release.md` 对应的 skill 规则，就必须执行 npm release 文档和 `references/release-ci-sync.md` 定义的强制动作，而不是只把它当成“默认原则”。
 
-如果分支上包含 codext npm / release 相关改动，必须先看 `references/npm-release.md`。这份文档明确要求：在 `NEW_BRANCH` 上用 `OLD_BRANCH` 的 `rust-release.yml` 覆盖当前 tag 分支内容，删除其他 workflow，并直接复制 `.github/scripts/install-musl-build-tools.sh`、`.github/scripts/rusty_v8_bazel.py`、`codex-cli/package.json`、`codex-cli/bin/codex.js`、`codex-cli/bin/rg`、`codex-cli/scripts/build_npm_package.py`、`codex-cli/scripts/install_native_deps.py`；这些是必做项，不是建议。只有这些动作完成后，才允许评估上游 / 新 tag 额外新增或改动的 CI 是否要合并或忽略。
+如果分支上包含 codext npm / release 相关改动，必须先看 `references/npm-release.md` 和 `references/release-ci-sync.md`。旧分支的 `rust-release.yml` 作为可用的 `F_OLD` 发布基线保留；不要用 upstream 新 workflow 整体覆盖它。必须直接复制 `.github/scripts/install-musl-build-tools.sh`、`.github/scripts/rusty_v8_bazel.py`、`codex-cli/package.json`、`codex-cli/bin/codex.js`、`codex-cli/bin/rg`、`codex-cli/scripts/build_npm_package.py`、`codex-cli/scripts/install_native_deps.py`；这些是必做项。随后用 `U_OLD..U_NEW` 的 upstream workflow 最终 diff，模型只把影响三类目标的变化 patch 或重实现到 `F_OLD`。
 
-完成 mandatory carry-over 后，必须执行 release artifact parity audit：逐个核对 upstream TAG 的 `cargo --bin`、artifact upload、release archive、vendor tree 与 npm platform package。特别是 `codex-code-mode-host` 必须随 `codex` 一起发布；只构建 CLI 或只复制 CLI 会导致运行时出现 “codex-code-mode-host 不存在”，这不是 API 认证失败。构建方式必须参考 upstream 的 workspace-level 单次 Cargo invocation，同时核对 release job 的 `CARGO_NET_GIT_FETCH_WITH_CLI`。使用 `.agents/skills/codex-upstream-reapply/scripts/check_release_artifact_parity.sh` 做静态检查。
+完成 mandatory carry-over 后，不要立即执行 release CI 检查；等 npm/release 工作完成、准备 push 时，按照 `references/release-ci-sync.md` 做 upstream diff 分类、模型决策、产物流向检查和 generic preflight。所有未采用但无法证明无关的 upstream 变化，都要在最终回复中说明其内容、作用和未采用原因。
 
 如果这套 codext npm / release 规则生效，所有用户可见文案、提示、tooltips、README/技能文档里凡是引用安装后命令名的地方，也必须同步使用 `codext`。例如恢复会话提示应写成 `codext resume <session>`，不要继续保留 `codex resume ...` 这类上游命令名。
 
@@ -235,16 +235,17 @@ git diff TAG..NEW_BRANCH
 cargo build -p codex-cli
 ```
 
-### 9) Push and monitor
+### 9) Release CI sync, then push
 
-完成 reapply 并提交后：
+完成 reapply 和 npm/release 工作后、准备提交和 push 时：
 
+- 先读取并执行 `references/release-ci-sync.md`。
+- 让模型基于 `U_OLD`、`F_OLD`、`U_NEW` 的 workflow diff，决定只应用 build artifacts、GitHub Release、npm Release 相关变化。
+- 如需更新 `references/release-overrides.json`，与本次 workflow/实现变化合并到同一个 commit，并在最终回复中解释。
 - 推送当前 reapply 分支到 `origin`。
 - 同一提交强制推送到 `origin/main`。
 - 后续每次更新后，也都要把同一提交同步推送到这两个分支。
-- 推送后约 40 分钟再检查一次 `origin/main` 的 GitHub Actions 状态。
-- 如果 `origin/main` GitHub Actions 存在问题，参考当前 upstream 对应代码与 CI 配置，比对后自动修复；修复提交后再次推送当前分支，并强制推送 `origin/main`。
-- 重复上述 CI 检查 / 修复 / 推送循环，直到 `origin/main` GitHub Actions 没有需要处理的问题。
+- GitHub Actions 监控和失败修复与本 skill 分离；只有用户明确要求读取或修复 CI 时才执行后续 CI 诊断。
 
 ## How changes are computed from OLD_BRANCH
 

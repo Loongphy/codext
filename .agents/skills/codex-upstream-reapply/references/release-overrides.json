@@ -1,0 +1,18 @@
+{
+  "workflow": ".github/workflows/rust-release.yml",
+  "scope": [
+    "build-artifacts",
+    "github-release",
+    "npm-release"
+  ],
+  "identity": {
+    "npm_package": "@loongphy/codext",
+    "platform_package_prefix": "@loongphy/codext-",
+    "cli_command": "codext"
+  },
+  "trigger": {
+    "mode": "main_push",
+    "reason": "codext publishes continuous fork builds instead of upstream tag releases"
+  },
+  "allowed_deviations": []
+}

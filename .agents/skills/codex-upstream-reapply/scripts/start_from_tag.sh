@@ -585,10 +585,9 @@ if ! git diff --cached --quiet; then
   fi
 fi
 
-release_audit_script="${script_dir}/check_release_artifact_parity.sh"
-if has_npm_release_reapply "${OLD_BRANCH}" && [[ -x "${release_audit_script}" ]]; then
-  echo "[INFO] Auditing release artifact parity..."
-  "${release_audit_script}"
+if has_npm_release_reapply "${OLD_BRANCH}"; then
+  echo "[INFO] Release CI sync is deferred until npm/release work is complete."
+  echo "[INFO] Before the final commit/push, read references/release-ci-sync.md."
 fi
 
 echo "[OK] New branch created: ${NEW_BRANCH}"
