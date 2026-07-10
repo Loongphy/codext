@@ -9,7 +9,6 @@ if [[ ! -f "${workflow}" || ! -f "${repo_root}/codex-cli/package.json" ]]; then
 fi
 
 required_patterns=(
-  "-p codex-code-mode-host"
   "--bin codex-code-mode-host"
   "codex-code-mode-host"
   "codex-bin-"
@@ -34,13 +33,9 @@ for path in \
   fi
 done
 
-protocol_manifest="${repo_root}/codex-rs/protocol/Cargo.toml"
-for target in x86_64-unknown-linux-musl aarch64-unknown-linux-musl; do
-  if ! rg -F --quiet -- "[target.${target}.dependencies]" "${protocol_manifest}" || \
-    ! rg -F --quiet -- 'openssl-sys = { workspace = true, features = ["vendored"] }' "${protocol_manifest}"; then
-    echo "[ERROR] Musl release dependency parity is missing vendored OpenSSL for ${target}" >&2
-    exit 1
-  fi
-done
+if rg -F --quiet -- "-p codex-code-mode-host" "${workflow}"; then
+  echo "[ERROR] Release workflow must build codex-code-mode-host in the same Cargo invocation as the CLI" >&2
+  exit 1
+fi
 
 echo "[OK] Release artifact parity includes codex-code-mode-host"

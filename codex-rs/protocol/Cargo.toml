@@ -52,14 +52,6 @@ wildmatch = { workspace = true }
 landlock = { workspace = true }
 seccompiler = { workspace = true }
 
-# Keep native-tls usable when codex-code-mode-host is built as a separate
-# package for musl release artifacts.
-[target.x86_64-unknown-linux-musl.dependencies]
-openssl-sys = { workspace = true, features = ["vendored"] }
-
-[target.aarch64-unknown-linux-musl.dependencies]
-openssl-sys = { workspace = true, features = ["vendored"] }
-
 [dev-dependencies]
 anyhow = { workspace = true }
 http = { workspace = true }
@@ -70,4 +62,4 @@ tempfile = { workspace = true }
 # Required because:
 # `icu_provider`: contains a required `sync` feature for `icu_decimal`
 # `strum`: is referenced by generated `EnumIter` derive implementations
-ignored = ["icu_provider", "openssl-sys", "strum"]
+ignored = ["icu_provider", "strum"]

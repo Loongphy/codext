@@ -152,7 +152,7 @@ bash .agents/skills/codex-upstream-reapply/scripts/start_from_tag.sh \
 
 如果分支上包含 codext npm / release 相关改动，必须先看 `references/npm-release.md`。这份文档明确要求：在 `NEW_BRANCH` 上用 `OLD_BRANCH` 的 `rust-release.yml` 覆盖当前 tag 分支内容，删除其他 workflow，并直接复制 `.github/scripts/install-musl-build-tools.sh`、`.github/scripts/rusty_v8_bazel.py`、`codex-cli/package.json`、`codex-cli/bin/codex.js`、`codex-cli/bin/rg`、`codex-cli/scripts/build_npm_package.py`、`codex-cli/scripts/install_native_deps.py`；这些是必做项，不是建议。只有这些动作完成后，才允许评估上游 / 新 tag 额外新增或改动的 CI 是否要合并或忽略。
 
-完成 mandatory carry-over 后，必须执行 release artifact parity audit：逐个核对 upstream TAG 的 `cargo --bin`、artifact upload、release archive、vendor tree 与 npm platform package。特别是 `codex-code-mode-host` 必须随 `codex` 一起发布；只构建 CLI 或只复制 CLI 会导致运行时出现 “codex-code-mode-host 不存在”，这不是 API 认证失败。若 host 需要独立 Cargo 命令，还必须核对 musl target 的 `openssl-sys` vendored 配置和 release job 的 `CARGO_NET_GIT_FETCH_WITH_CLI`。使用 `.agents/skills/codex-upstream-reapply/scripts/check_release_artifact_parity.sh` 做静态检查。
+完成 mandatory carry-over 后，必须执行 release artifact parity audit：逐个核对 upstream TAG 的 `cargo --bin`、artifact upload、release archive、vendor tree 与 npm platform package。特别是 `codex-code-mode-host` 必须随 `codex` 一起发布；只构建 CLI 或只复制 CLI 会导致运行时出现 “codex-code-mode-host 不存在”，这不是 API 认证失败。构建方式必须参考 upstream 的 workspace-level 单次 Cargo invocation，同时核对 release job 的 `CARGO_NET_GIT_FETCH_WITH_CLI`。使用 `.agents/skills/codex-upstream-reapply/scripts/check_release_artifact_parity.sh` 做静态检查。
 
 如果这套 codext npm / release 规则生效，所有用户可见文案、提示、tooltips、README/技能文档里凡是引用安装后命令名的地方，也必须同步使用 `codext`。例如恢复会话提示应写成 `codext resume <session>`，不要继续保留 `codex resume ...` 这类上游命令名。
 

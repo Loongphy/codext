@@ -34,10 +34,9 @@ Trace every runtime binary from build to package before committing:
 1. Compare the upstream TAG workflow's `cargo --bin` matrix with the fork workflow.
 2. Follow each binary through build output, uploaded artifact, standalone archive, vendor tree, and npm platform package.
 3. Include `codex-code-mode-host` anywhere the CLI is shipped. It must sit beside `codex`/`codext`; `cargo build -p codex-cli` does not build it.
-   Because Cargo resolves `--bin` within the selected package, build it in a separate command with `-p codex-code-mode-host`; do not append its `--bin` flag to the `codex-cli` command.
-4. When the host is built separately for musl, keep target-specific vendored `openssl-sys` dependencies on `codex-protocol`; otherwise its `reqwest` native-tls dependency falls back to host OpenSSL headers.
-5. Keep Windows-only helpers (`codex-windows-sandbox-setup.exe`, `codex-command-runner.exe`) and Linux resources such as `bwrap` aligned with the current release scripts.
-6. Preserve `CARGO_NET_GIT_FETCH_WITH_CLI: "true"` in release jobs. The workspace contains git dependencies with nested submodules, and macOS runners can fail when Cargo uses libgit2/SecureTransport.
+   Follow upstream's workspace-level release build and pass `--bin codex --bin codex-code-mode-host` in the same Cargo invocation. Do not split them into separate `-p` commands: target-specific feature resolution must remain shared.
+4. Keep Windows-only helpers (`codex-windows-sandbox-setup.exe`, `codex-command-runner.exe`) and Linux resources such as `bwrap` aligned with the current release scripts.
+5. Preserve `CARGO_NET_GIT_FETCH_WITH_CLI: "true"` in release jobs. The workspace contains git dependencies with nested submodules, and macOS runners can fail when Cargo uses libgit2/SecureTransport.
 
 Run the static parity audit after the carry-over copy:
 
@@ -49,8 +48,7 @@ For local execution, build the CLI and companion host with the same profile:
 
 ```bash
 cd codex-rs
-cargo build --release -p codex-cli --bin codex
-cargo build --release -p codex-code-mode-host
+cargo build --release --bin codex --bin codex-code-mode-host
 ```
 
 Debug builds work the same way; `--release` is not what makes code mode available.

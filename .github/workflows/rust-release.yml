@@ -174,11 +174,8 @@ jobs:
       - name: Cargo build
         shell: bash
         run: |
-          cargo build --locked --target ${{ matrix.target }} --release \
-            -p codex-cli \
-            --bin codex
-          cargo build --locked --target ${{ matrix.target }} --release \
-            -p codex-code-mode-host \
+          cargo build --locked --target ${{ matrix.target }} --release --timings \
+            --bin codex \
             --bin codex-code-mode-host
 
       - name: Stage Unix binary artifact
@@ -257,14 +254,12 @@ jobs:
       - name: Cargo build
         shell: bash
         run: |
-          cargo build --locked --target ${{ matrix.target }} --release \
-            -p codex-cli \
-            --bin codex
-          cargo build --locked --target ${{ matrix.target }} --release \
-            -p codex-code-mode-host \
-            --bin codex-code-mode-host
-          cargo build --locked --target ${{ matrix.target }} --release \
-            -p codex-windows-sandbox \
+          if [[ "${{ matrix.target }}" == "x86_64-pc-windows-msvc" ]]; then
+            export LIBSQLITE3_FLAGS=SQLITE_DISABLE_INTRINSIC
+          fi
+          cargo build --locked --target ${{ matrix.target }} --release --timings \
+            --bin codex \
+            --bin codex-code-mode-host \
             --bin codex-windows-sandbox-setup \
             --bin codex-command-runner
 
