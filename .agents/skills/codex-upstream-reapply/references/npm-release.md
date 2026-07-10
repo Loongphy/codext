@@ -34,6 +34,7 @@ Trace every runtime binary from build to package before committing:
 1. Compare the upstream TAG workflow's `cargo --bin` matrix with the fork workflow.
 2. Follow each binary through build output, uploaded artifact, standalone archive, vendor tree, and npm platform package.
 3. Include `codex-code-mode-host` anywhere the CLI is shipped. It must sit beside `codex`/`codext`; `cargo build -p codex-cli` does not build it.
+   Because Cargo resolves `--bin` within the selected package, build it in a separate command with `-p codex-code-mode-host`; do not append its `--bin` flag to the `codex-cli` command.
 4. Keep Windows-only helpers (`codex-windows-sandbox-setup.exe`, `codex-command-runner.exe`) and Linux resources such as `bwrap` aligned with the current release scripts.
 
 Run the static parity audit after the carry-over copy:

@@ -173,7 +173,9 @@ jobs:
         run: |
           cargo build --locked --target ${{ matrix.target }} --release \
             -p codex-cli \
-            --bin codex \
+            --bin codex
+          cargo build --locked --target ${{ matrix.target }} --release \
+            -p codex-code-mode-host \
             --bin codex-code-mode-host
 
       - name: Stage Unix binary artifact
@@ -252,9 +254,12 @@ jobs:
         run: |
           cargo build --locked --target ${{ matrix.target }} --release \
             -p codex-cli \
+            --bin codex
+          cargo build --locked --target ${{ matrix.target }} --release \
+            -p codex-code-mode-host \
+            --bin codex-code-mode-host
+          cargo build --locked --target ${{ matrix.target }} --release \
             -p codex-windows-sandbox \
-            --bin codex \
-            --bin codex-code-mode-host \
             --bin codex-windows-sandbox-setup \
             --bin codex-command-runner
 

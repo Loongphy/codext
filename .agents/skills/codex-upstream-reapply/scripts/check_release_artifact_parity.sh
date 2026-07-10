@@ -9,6 +9,7 @@ if [[ ! -f "${workflow}" || ! -f "${repo_root}/codex-cli/package.json" ]]; then
 fi
 
 required_patterns=(
+  "-p codex-code-mode-host"
   "--bin codex-code-mode-host"
   "codex-code-mode-host"
   "codex-bin-"
