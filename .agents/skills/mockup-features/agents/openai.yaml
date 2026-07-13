@@ -1,0 +1,4 @@
+interface:
+  display_name: "Mockup Features"
+  short_description: "Document temporary feature mockups"
+  default_prompt: "Use $mockup-features to turn the current temporary feature diff into a reusable mockup recipe."
