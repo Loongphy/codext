@@ -116,16 +116,19 @@ pub(crate) struct PluginRemoteSectionError {
 ///
 /// A `StartupPrefetch` fires once, concurrently with the rest of TUI init, and
 /// updates the cached snapshots and any available reset-credit notice (no
-/// status card to finalize). A `StatusCommand` is tied to a specific `/status`
-/// invocation and must call `finish_status_rate_limit_refresh` when done so the
-/// card stops showing a "refreshing" state. A `UsageMenu` refreshes a cached
-/// zero reset count so the disabled menu entry can become available without a
-/// restart. A `ResetPicker` refreshes the rate limits and detailed reset-credit
-/// rows before showing redemption choices.
+/// status card to finalize). A `BackgroundPoll` keeps the status header and
+/// queue gating fresh while the UI is idle. A `StatusCommand` is tied to a
+/// specific `/status` invocation and must call `finish_status_rate_limit_refresh`
+/// when done so the card stops showing a "refreshing" state. A `UsageMenu`
+/// refreshes a cached zero reset count so the disabled menu entry can become
+/// available without a restart. A `ResetPicker` refreshes the rate limits and
+/// detailed reset-credit rows before showing redemption choices.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum RateLimitRefreshOrigin {
     /// Eagerly fetched after bootstrap for `/status` data and reset availability.
     StartupPrefetch { reset_hint_request_id: u64 },
+    /// Periodic refresh used to keep the status header and queue gating fresh.
+    BackgroundPoll,
     /// User-initiated via `/status`; the `request_id` correlates with the
     /// status card that should be updated when the fetch completes.
     StatusCommand { request_id: u64 },
@@ -338,6 +341,14 @@ pub(crate) enum AppEvent {
         idempotency_key: String,
         credit_id: Option<String>,
         result: Result<ConsumeAccountRateLimitResetCreditResponse, String>,
+    },
+
+    /// `auth.json` changed on disk.
+    AuthFileChanged,
+
+    /// Retry a failed auth reload attempt after debounce/backoff.
+    AuthFileChangedRetry {
+        attempt: u8,
     },
 
     /// Fetch account-wide token activity for a `/usage` history card.
@@ -1018,6 +1029,11 @@ pub(crate) enum AppEvent {
     StatusLineWorkspaceHeadlineUpdated {
         request_id: u64,
         result: Result<crate::workspace_messages::WorkspaceHeadlineFetchResult, String>,
+    },
+    /// Async update of the compact status-header Git state.
+    StatusHeaderGitStatusUpdated {
+        cwd: PathBuf,
+        summary: Option<crate::git_status::GitStatusSummary>,
     },
     /// Apply a user-confirmed status-line item ordering/selection.
     StatusLineSetup {

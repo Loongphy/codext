@@ -541,6 +541,7 @@ impl ChatWidget {
         let previous_cwd = std::mem::replace(&mut self.config.cwd, cwd.clone());
         self.current_cwd = Some(cwd.to_path_buf());
         self.status_line_project_root_name_cache = None;
+        self.sync_status_header_git_status_poller();
 
         if !self.config.workspace_roots.contains(&previous_cwd) {
             return;
