@@ -99,9 +99,11 @@ impl StatusHeader {
         let rate_limit = snapshot.and_then(|snapshot| {
             snapshot.primary.as_ref().map(|primary| {
                 let remaining = (100.0 - primary.used_percent).clamp(0.0, 100.0).round() as i64;
-                match primary.resets_at.as_deref().and_then(|reset| reset.split_once(' ')) {
-                    Some((time, _)) => format!("{remaining}% {time}"),
-                    None => format!("{remaining}%"),
+                match primary.resets_at.as_deref() {
+                    Some(resets_at) if !resets_at.trim().is_empty() => {
+                        format!("{remaining}% {}", compact_reset_time(resets_at))
+                    }
+                    _ => format!("{remaining}%"),
                 }
             })
         });
@@ -191,4 +193,10 @@ fn account_label(
         Some(StatusAccountDisplay::ApiKey) => Some("API key".to_string()),
         None => None,
     }
+}
+
+fn compact_reset_time(resets_at: &str) -> &str {
+    resets_at
+        .split_once(' ')
+        .map_or(resets_at, |(time, _)| time)
 }
