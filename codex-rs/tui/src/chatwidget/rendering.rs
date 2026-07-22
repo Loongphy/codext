@@ -46,19 +46,70 @@ impl ChatWidget {
                 })),
             );
         }
+        let bottom_pane_renderable =
+            RenderableItem::Owned(Box::new(BottomPaneComposerReserveRenderable {
+                chat_widget: self,
+                right_reserve: active_cell_right_reserve,
+            }));
         flex.push(
             /*flex*/ 0,
-            self.bottom_pane
-                .as_renderable_with_composer_right_reserve(active_cell_right_reserve)
-                .inset(Insets::tlbr(
-                    /*top*/ 1, /*left*/ 0, /*bottom*/ 0, /*right*/ 0,
-                )),
+            bottom_pane_renderable.inset(Insets::tlbr(
+                /*top*/ 1, /*left*/ 0, /*bottom*/ 0, /*right*/ 0,
+            )),
         );
         RenderableItem::Owned(Box::new(flex))
     }
 
     pub(crate) fn note_rendered_width(&self, width: u16) {
         self.last_rendered_width.set(Some(width as usize));
+    }
+}
+
+struct BottomPaneComposerReserveRenderable<'a> {
+    chat_widget: &'a ChatWidget,
+    right_reserve: u16,
+}
+
+impl Renderable for BottomPaneComposerReserveRenderable<'_> {
+    fn render(&self, area: Rect, buf: &mut Buffer) {
+        self.chat_widget
+            .bottom_pane
+            .render_with_composer_right_reserve_and_header(
+                area,
+                buf,
+                self.right_reserve,
+                super::status_header::renderable(self.chat_widget),
+            );
+    }
+
+    fn desired_height(&self, width: u16) -> u16 {
+        self.chat_widget
+            .bottom_pane
+            .desired_height_with_composer_right_reserve_and_header(
+                width,
+                self.right_reserve,
+                super::status_header::renderable(self.chat_widget),
+            )
+    }
+
+    fn cursor_pos(&self, area: Rect) -> Option<(u16, u16)> {
+        self.chat_widget
+            .bottom_pane
+            .cursor_pos_with_composer_right_reserve_and_header(
+                area,
+                self.right_reserve,
+                super::status_header::renderable(self.chat_widget),
+            )
+    }
+
+    fn cursor_style(&self, area: Rect) -> crossterm::cursor::SetCursorStyle {
+        self.chat_widget
+            .bottom_pane
+            .cursor_style_with_composer_right_reserve_and_header(
+                area,
+                self.right_reserve,
+                super::status_header::renderable(self.chat_widget),
+            )
     }
 }
 

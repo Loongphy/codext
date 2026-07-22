@@ -36,6 +36,7 @@ impl ChatWidget {
         );
         self.refresh_plan_mode_nudge();
         self.refresh_status_surfaces();
+        self.maybe_dispatch_deferred_auth_reload();
     }
 
     pub(super) fn collect_runtime_metrics_delta(&mut self) {
@@ -393,6 +394,17 @@ impl ChatWidget {
 
     pub(super) fn on_rate_limit_error(&mut self, error_kind: RateLimitErrorKind, message: String) {
         let usage_limit_error = matches!(error_kind, RateLimitErrorKind::UsageLimit);
+        if usage_limit_error {
+            self.input_queue.suppress_queue_autosend = true;
+            self.bottom_pane
+                .set_queue_submissions(/*queue_submissions*/ true);
+            if self.pending_usage_limit_resume_turn.is_none()
+                && let Some(prompt) = self.usage_limit_resume_prompt()
+            {
+                self.pending_usage_limit_resume_turn = Some(UserMessage::from(prompt));
+                self.usage_limit_resume_waiting_for_auth_reload = true;
+            }
+        }
         let rate_limit_reached_type = self.codex_rate_limit_reached_type.map(|kind| {
             if usage_limit_error {
                 match kind {

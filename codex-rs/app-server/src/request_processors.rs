@@ -1,3 +1,4 @@
+use crate::auth_mode::auth_mode_to_api;
 use crate::bespoke_event_handling::apply_bespoke_event_handling;
 use crate::command_exec::CommandExecManager;
 use crate::command_exec::StartCommandExecParams;
@@ -394,6 +395,7 @@ use codex_feedback::FeedbackUploadOptions;
 use codex_git_utils::git_diff_to_remote;
 use codex_git_utils::resolve_root_git_project_for_trust;
 use codex_login::AuthManager;
+use codex_login::AuthReloadStatus;
 use codex_login::CODEX_OPEN_APP_URL;
 use codex_login::CodexAuth;
 use codex_login::LoginSuccessPage;
@@ -516,6 +518,81 @@ use uuid::Uuid;
 
 #[cfg(test)]
 use codex_app_server_protocol::ServerRequest;
+
+async fn reload_auth_from_storage_if_idle(
+    auth_manager: &Arc<AuthManager>,
+    thread_manager: &Arc<ThreadManager>,
+    config_manager: &ConfigManager,
+    outgoing: &OutgoingMessageSender,
+    thread_watch_manager: &ThreadWatchManager,
+    chatgpt_base_url: &str,
+    reason: &str,
+) {
+    if *thread_watch_manager.subscribe_running_turn_count().borrow() != 0 {
+        return;
+    }
+
+    let status = auth_manager.reload_with_status().await;
+    match handle_auth_reload_status(
+        status,
+        auth_manager,
+        thread_manager,
+        config_manager,
+        outgoing,
+        chatgpt_base_url,
+        reason,
+    )
+    .await
+    {
+        AuthReloadStatus::Reloaded { .. } => {}
+        AuthReloadStatus::Failed => {
+            warn!("failed to reload auth from storage before {reason}");
+        }
+    }
+}
+
+async fn handle_auth_reload_status(
+    status: AuthReloadStatus,
+    auth_manager: &Arc<AuthManager>,
+    thread_manager: &Arc<ThreadManager>,
+    config_manager: &ConfigManager,
+    outgoing: &OutgoingMessageSender,
+    chatgpt_base_url: &str,
+    reason: &str,
+) -> AuthReloadStatus {
+    match status {
+        AuthReloadStatus::Reloaded { changed } => {
+            if changed {
+                let invalidated_thread_count =
+                    thread_manager.invalidate_model_transport_caches().await;
+                info!(
+                    "auth reloaded from storage before {reason}; invalidated model transport caches for {invalidated_thread_count} tracked thread(s)"
+                );
+                config_manager.replace_cloud_config_bundle_loader(
+                    Arc::clone(auth_manager),
+                    chatgpt_base_url.to_string(),
+                );
+                config_manager
+                    .sync_default_client_residency_requirement()
+                    .await;
+                let auth = auth_manager.auth_cached();
+                outgoing
+                    .send_server_notification(ServerNotification::AccountUpdated(
+                        AccountUpdatedNotification {
+                            auth_mode: auth
+                                .as_ref()
+                                .map(CodexAuth::api_auth_mode)
+                                .map(auth_mode_to_api),
+                            plan_type: auth.as_ref().and_then(CodexAuth::account_plan_type),
+                        },
+                    ))
+                    .await;
+            }
+            AuthReloadStatus::Reloaded { changed }
+        }
+        AuthReloadStatus::Failed => AuthReloadStatus::Failed,
+    }
+}
 
 mod account_processor;
 mod apps_processor;

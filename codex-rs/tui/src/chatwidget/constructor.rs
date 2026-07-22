@@ -241,14 +241,21 @@ impl ChatWidget {
             next_status_line_workspace_headline_request_id: 0,
             status_line_workspace_headline_last_requested_at: None,
             status_line_workspace_messages_disabled: false,
+            status_header_git_status: None,
+            status_header_git_status_cwd: None,
+            status_header_git_status_task: None,
             current_goal_status_indicator: None,
             current_goal_status: None,
             external_editor_state: ExternalEditorState::Closed,
             last_rendered_user_message_display: None,
             last_non_retry_error: None,
+            pending_auth_reload_attempt: None,
+            pending_usage_limit_resume_turn: None,
+            usage_limit_resume_waiting_for_auth_reload: false,
         };
 
         widget.prefetch_rate_limits();
+        widget.sync_status_header_git_status_poller();
         if let Some(keymap) = runtime_keymap {
             widget.bottom_pane.set_keymap_bindings(&keymap);
         }

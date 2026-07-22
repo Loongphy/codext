@@ -1723,6 +1723,17 @@ impl BottomPane {
         &'_ self,
         composer_right_reserve: u16,
     ) -> RenderableItem<'_> {
+        self.as_renderable_with_composer_right_reserve_and_header(
+            composer_right_reserve,
+            /*composer_header*/ None,
+        )
+    }
+
+    fn as_renderable_with_composer_right_reserve_and_header(
+        &'_ self,
+        composer_right_reserve: u16,
+        composer_header: Option<RenderableItem<'static>>,
+    ) -> RenderableItem<'_> {
         if let Some(view) = self.active_view() {
             RenderableItem::Borrowed(view)
         } else {
@@ -1764,6 +1775,9 @@ impl BottomPane {
             }
             let mut flex2 = FlexRenderable::new();
             flex2.push(/*flex*/ 1, RenderableItem::Owned(flex.into()));
+            if let Some(composer_header) = composer_header {
+                flex2.push(/*flex*/ 0, composer_header);
+            }
             let composer: RenderableItem<'_> = if composer_right_reserve == 0 {
                 RenderableItem::Borrowed(&self.composer)
             } else {
@@ -1775,6 +1789,59 @@ impl BottomPane {
             flex2.push(/*flex*/ 0, composer);
             RenderableItem::Owned(Box::new(flex2))
         }
+    }
+
+    pub(crate) fn render_with_composer_right_reserve_and_header(
+        &self,
+        area: Rect,
+        buf: &mut Buffer,
+        composer_right_reserve: u16,
+        composer_header: Option<RenderableItem<'static>>,
+    ) {
+        self.as_renderable_with_composer_right_reserve_and_header(
+            composer_right_reserve,
+            composer_header,
+        )
+        .render(area, buf);
+    }
+
+    pub(crate) fn desired_height_with_composer_right_reserve_and_header(
+        &self,
+        width: u16,
+        composer_right_reserve: u16,
+        composer_header: Option<RenderableItem<'static>>,
+    ) -> u16 {
+        self.as_renderable_with_composer_right_reserve_and_header(
+            composer_right_reserve,
+            composer_header,
+        )
+        .desired_height(width)
+    }
+
+    pub(crate) fn cursor_pos_with_composer_right_reserve_and_header(
+        &self,
+        area: Rect,
+        composer_right_reserve: u16,
+        composer_header: Option<RenderableItem<'static>>,
+    ) -> Option<(u16, u16)> {
+        self.as_renderable_with_composer_right_reserve_and_header(
+            composer_right_reserve,
+            composer_header,
+        )
+            .cursor_pos(area)
+    }
+
+    pub(crate) fn cursor_style_with_composer_right_reserve_and_header(
+        &self,
+        area: Rect,
+        composer_right_reserve: u16,
+        composer_header: Option<RenderableItem<'static>>,
+    ) -> crossterm::cursor::SetCursorStyle {
+        self.as_renderable_with_composer_right_reserve_and_header(
+            composer_right_reserve,
+            composer_header,
+        )
+            .cursor_style(area)
     }
 
     pub(crate) fn set_status_line(&mut self, status_line: Option<Line<'static>>) {
