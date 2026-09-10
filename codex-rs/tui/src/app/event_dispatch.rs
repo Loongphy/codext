@@ -1278,6 +1278,20 @@ impl App {
             AppEvent::FileSearchResult { query, matches } => {
                 self.chat_widget.apply_file_search_result(query, matches);
             }
+            AppEvent::ServerOverloadedRetry {
+                attempt,
+                generation,
+            } => {
+                self.chat_widget
+                    .on_server_overloaded_retry(attempt, generation);
+            }
+            AppEvent::AuthFileChanged => {
+                self.handle_auth_file_changed(app_server, /*attempt*/ 1)
+                    .await;
+            }
+            AppEvent::AuthFileChangedRetry { attempt } => {
+                self.handle_auth_file_changed(app_server, attempt).await;
+            }
             AppEvent::TaskSearchResult {
                 thread_id,
                 query,
@@ -1419,6 +1433,12 @@ impl App {
                             self.chat_widget
                                 .finish_status_rate_limit_refresh(request_id, snapshots);
                         }
+                        RateLimitRefreshOrigin::BackgroundPoll => {
+                            for snapshot in snapshots {
+                                self.chat_widget.on_rate_limit_snapshot(Some(snapshot));
+                            }
+                            tui.frame_requester().schedule_frame();
+                        }
                         RateLimitRefreshOrigin::UsageMenu { request_id } => {
                             self.chat_widget.finish_usage_menu_rate_limit_refresh(
                                 request_id,
@@ -1470,6 +1490,7 @@ impl App {
                             self.chat_widget
                                 .finish_status_rate_limit_refresh(request_id, Vec::new());
                         }
+                        RateLimitRefreshOrigin::BackgroundPoll => {}
                         RateLimitRefreshOrigin::UsageMenu { request_id } => {
                             self.chat_widget.finish_usage_menu_rate_limit_refresh(
                                 request_id,
@@ -3014,6 +3035,10 @@ impl App {
                 {
                     tui.frame_requester().schedule_frame();
                 }
+            }
+            AppEvent::StatusHeaderGitStatusUpdated { cwd, summary } => {
+                self.chat_widget.set_status_header_git_status(cwd, summary);
+                tui.frame_requester().schedule_frame();
             }
             AppEvent::StatusLineSetupCancelled => {
                 self.chat_widget.cancel_status_line_setup();

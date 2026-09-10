@@ -110,6 +110,7 @@ impl App {
                         .and_then(|result| result.map_err(|err| err.to_string()))
                 }
                 RateLimitRefreshOrigin::StartupPrefetch { .. }
+                | RateLimitRefreshOrigin::BackgroundPoll
                 | RateLimitRefreshOrigin::StatusCommand { .. }
                 | RateLimitRefreshOrigin::UsageMenu { .. } => {
                     request.await.map_err(|err| err.to_string())
@@ -122,6 +123,25 @@ impl App {
                 result,
             });
         });
+    }
+
+    /// Start a background poller that refreshes account rate limits every 15s
+    /// so the status header and `/statusline` limit items keep moving while the
+    /// UI is otherwise idle.
+    pub(super) fn start_rate_limit_polling(&mut self) {
+        if self.rate_limit_poll_task.is_some() {
+            return;
+        }
+
+        let app_event_tx = self.app_event_tx.clone();
+        self.rate_limit_poll_task = Some(tokio::spawn(async move {
+            loop {
+                tokio::time::sleep(std::time::Duration::from_secs(/*secs*/ 15)).await;
+                app_event_tx.send(AppEvent::RefreshRateLimits {
+                    origin: RateLimitRefreshOrigin::BackgroundPoll,
+                });
+            }
+        }));
     }
 
     pub(super) fn refresh_token_activity(

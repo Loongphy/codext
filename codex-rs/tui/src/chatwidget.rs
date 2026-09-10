@@ -425,6 +425,7 @@ use self::status_state::StatusIndicatorState;
 use self::status_state::StatusState;
 use self::status_state::TerminalTitleStatusKind;
 mod status_controls;
+mod status_header;
 mod status_surfaces;
 mod streaming;
 use self::status_surfaces::CachedProjectRootName;
@@ -500,6 +501,19 @@ const APPROVE_FOR_ME_LABEL: &str = "Approve for me";
 const AUTO_REVIEW_DESCRIPTION: &str = "Only ask for actions detected as potentially unsafe.";
 const DEFAULT_OPENAI_BASE_URL: &str = "https://api.openai.com/v1";
 const DEFAULT_STATUS_LINE_ITEMS: [&str; 3] = ["model-with-reasoning", "current-dir", "thread-name"];
+const DEFAULT_SERVER_OVERLOADED_RESUME_PROMPT: &str = "Continue";
+const DEFAULT_USAGE_LIMIT_RESUME_PROMPT: &str =
+    "The usage limit has been reset, so you can resume from where you left off.";
+
+/// Local echo of a user message this TUI already rendered, keyed by turn id.
+///
+/// The app-server echoes committed user messages back to the TUI. This records the
+/// display this TUI rendered so the echo is not rendered twice, while still
+/// letting a different client submit identical text later and get its own cell.
+struct PendingLocalUserMessageEcho {
+    display: UserMessageDisplay,
+    turn_id: Option<String>,
+}
 
 /// Common initialization parameters shared by all `ChatWidget` constructors.
 pub(crate) struct ChatWidgetInit {
@@ -795,8 +809,26 @@ pub(crate) struct ChatWidget {
     current_goal_status_indicator: Option<GoalStatusIndicator>,
     current_goal_status: Option<GoalStatusState>,
     external_editor_state: ExternalEditorState,
-    last_rendered_user_message_display: Option<UserMessageDisplay>,
+    pending_local_user_message_echo: Option<PendingLocalUserMessageEcho>,
     last_non_retry_error: Option<(String, String)>,
+    // Cached Git status for the compact status header.
+    status_header_git_status: Option<crate::git_status::GitStatusSummary>,
+    // CWD used by the active header Git status poller.
+    status_header_git_status_cwd: Option<PathBuf>,
+    // Background poller for header Git status; aborted when this widget is dropped or retargeted.
+    status_header_git_status_task: Option<tokio::task::JoinHandle<()>>,
+    // Attempt counter for an auth.json reload deferred until the running task finishes.
+    pending_auth_reload_attempt: Option<u8>,
+    // Synthetic recovery turn queued after a `UsageLimitExceeded` turn failure.
+    pending_usage_limit_resume_turn: Option<UserMessage>,
+    // Synthetic `Continue` turn queued after a `ServerOverloaded` turn failure.
+    pending_server_overloaded_resume_turn: Option<UserMessage>,
+    // Consecutive `ServerOverloaded` resume attempts, reset by any completed turn.
+    server_overloaded_resume_attempts: u8,
+    // Guards against late resume timers from an earlier attempt generation.
+    server_overloaded_resume_generation: u64,
+    // A parked usage-limit recovery turn waits for an auth reload that changes identity.
+    usage_limit_resume_waiting_for_auth_reload: bool,
 }
 
 #[cfg_attr(not(test), allow(dead_code))]
@@ -1287,6 +1319,7 @@ impl ChatWidget {
     fn on_committed_user_message(
         &mut self,
         items: &[UserInput],
+        turn_id: &str,
         client_id: Option<&str>,
         from_replay: bool,
     ) {
@@ -1323,22 +1356,29 @@ impl ChatWidget {
                 let pending_display =
                     user_message_display_for_history(pending.user_message, &pending.history_record);
                 self.on_user_message_display(pending_display);
-            } else if self.last_rendered_user_message_display.as_ref() != Some(&display) {
+            } else {
                 tracing::warn!(
                     "pending steer matched receipt but queue was empty when rendering committed user message"
                 );
                 self.on_user_message_display(display);
             }
-        } else if !self.review.is_review_mode
-            && self.last_rendered_user_message_display.as_ref() != Some(&display)
-        {
-            self.on_user_message_display(display);
+        } else if !self.review.is_review_mode {
+            let is_local_echo = self
+                .pending_local_user_message_echo
+                .as_ref()
+                .is_some_and(|pending| {
+                    pending.turn_id.as_deref() == Some(turn_id) && pending.display == display
+                });
+            if is_local_echo {
+                self.pending_local_user_message_echo = None;
+            } else {
+                self.on_user_message_display(display);
+            }
         }
     }
 
     fn on_user_message_display(&mut self, display: UserMessageDisplay) {
         self.transcript.last_status_copy_targets = None;
-        self.last_rendered_user_message_display = Some(display.clone());
         if !display.message.trim().is_empty()
             || !display.text_elements.is_empty()
             || !display.local_images.is_empty()
@@ -1991,6 +2031,7 @@ fn has_websocket_timing_metrics(summary: RuntimeMetricsSummary) -> bool {
 impl Drop for ChatWidget {
     fn drop(&mut self) {
         self.stop_rate_limit_poller();
+        self.stop_status_header_git_status_poller();
     }
 }
 

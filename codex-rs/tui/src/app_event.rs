@@ -200,6 +200,9 @@ pub(crate) struct PluginRemoteSectionError {
 pub(crate) enum RateLimitRefreshOrigin {
     /// Eagerly fetched after bootstrap for `/status` data and reset availability.
     StartupPrefetch { reset_hint_request_id: u64 },
+    /// Periodic background poll that keeps the status header and `/statusline`
+    /// limit items moving while the UI is otherwise idle.
+    BackgroundPoll,
     /// User-initiated via `/status`; the `request_id` correlates with the
     /// status card that should be updated when the fetch completes.
     StatusCommand { request_id: u64 },
@@ -569,6 +572,25 @@ pub(crate) enum AppEvent {
         thread_id: ThreadId,
         query: String,
         matches: Vec<crate::task_mentions::TaskMention>,
+    },
+
+    /// Retry a server-overloaded turn after its backoff delay.
+    ServerOverloadedRetry {
+        attempt: u8,
+        generation: u64,
+    },
+
+    /// `CODEX_HOME/auth.json` changed on disk; reload auth from storage.
+    AuthFileChanged,
+    /// Retry a deferred auth reload after a previous attempt failed.
+    AuthFileChangedRetry {
+        attempt: u8,
+    },
+
+    /// Background Git-status poller for the status header produced a new summary.
+    StatusHeaderGitStatusUpdated {
+        cwd: std::path::PathBuf,
+        summary: Option<crate::git_status::GitStatusSummary>,
     },
 
     /// Refresh account rate limits in the background.

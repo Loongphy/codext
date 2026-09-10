@@ -9,6 +9,14 @@ const LEGACY_SAFETY_ACCESS_BLOCK_PREFIX: &str =
     "Invalid prompt: we've limited access to this content for safety reasons.";
 const BIO_POLICY_SAFETY_ACCESS_BLOCK_PREFIX: &str =
     "This content was flagged for possible biological risk.";
+/// Exponential backoff between automatic `ServerOverloaded` resume attempts.
+const SERVER_OVERLOADED_RESUME_DELAYS: [Duration; 5] = [
+    Duration::from_secs(15),
+    Duration::from_secs(30),
+    Duration::from_secs(60),
+    Duration::from_secs(120),
+    Duration::from_secs(240),
+];
 
 fn is_safety_access_block_message(message: &str) -> bool {
     message.starts_with(LEGACY_SAFETY_ACCESS_BLOCK_PREFIX)
@@ -43,6 +51,7 @@ impl ChatWidget {
             self.bottom_pane.hide_status_indicator();
         }
         self.refresh_status_surfaces();
+        self.maybe_dispatch_deferred_auth_reload();
     }
 
     pub(super) fn collect_runtime_metrics_delta(&mut self) {
@@ -117,6 +126,13 @@ impl ChatWidget {
         from_replay: bool,
     ) {
         self.input_queue.submit_pending_steers_after_interrupt = false;
+        if !from_replay {
+            // Any completed turn clears overload backoff and invalidates pending retry timers.
+            self.pending_server_overloaded_resume_turn = None;
+            self.server_overloaded_resume_attempts = 0;
+            self.server_overloaded_resume_generation =
+                self.server_overloaded_resume_generation.wrapping_add(1);
+        }
         let sanitized_last_agent_message = last_agent_message.as_deref().map(|message| {
             parse_assistant_markdown(message, self.config.cwd.as_path()).visible_markdown
         });
@@ -356,6 +372,7 @@ impl ChatWidget {
 
     pub(super) fn on_server_overloaded_error(&mut self, message: String) {
         self.input_queue.submit_pending_steers_after_interrupt = false;
+        self.schedule_server_overloaded_resume();
         self.finalize_turn();
 
         let message = if message.trim().is_empty() {
@@ -366,7 +383,46 @@ impl ChatWidget {
 
         self.add_to_history(history_cell::new_warning_event(message));
         self.request_redraw();
-        self.maybe_send_next_queued_input();
+    }
+
+    /// Queue an automatic `Continue` turn after `ServerOverloaded`, with bounded backoff.
+    fn schedule_server_overloaded_resume(&mut self) {
+        if !self.config.tui_server_overloaded_resume {
+            self.reset_server_overloaded_resume();
+            return;
+        }
+        let next_attempt = self.server_overloaded_resume_attempts.saturating_add(1);
+        let Some(retry_delay) = SERVER_OVERLOADED_RESUME_DELAYS
+            .get(usize::from(next_attempt.saturating_sub(1)))
+            .copied()
+        else {
+            // Backoff budget exhausted: leave the error on screen for the user.
+            self.reset_server_overloaded_resume();
+            return;
+        };
+        self.server_overloaded_resume_attempts = next_attempt;
+        self.server_overloaded_resume_generation = self
+            .server_overloaded_resume_generation
+            .wrapping_add(1);
+        let generation = self.server_overloaded_resume_generation;
+        self.pending_server_overloaded_resume_turn =
+            Some(UserMessage::from(DEFAULT_SERVER_OVERLOADED_RESUME_PROMPT));
+        let app_event_tx = self.app_event_tx.clone();
+        tokio::spawn(async move {
+            tokio::time::sleep(retry_delay).await;
+            app_event_tx.send(AppEvent::ServerOverloadedRetry {
+                attempt: next_attempt,
+                generation,
+            });
+        });
+    }
+
+    /// Clear pending overload-resume state and invalidate any in-flight retry timer.
+    fn reset_server_overloaded_resume(&mut self) {
+        self.pending_server_overloaded_resume_turn = None;
+        self.server_overloaded_resume_attempts = 0;
+        self.server_overloaded_resume_generation =
+            self.server_overloaded_resume_generation.wrapping_add(1);
     }
 
     fn on_error(&mut self, message: String) {
@@ -416,6 +472,17 @@ impl ChatWidget {
         // on_error can drain queued input, before the asynchronous recovery read completes.
         self.input_queue.rate_limit_recovery_pending = self.has_chatgpt_account;
         let usage_limit_error = matches!(error_kind, RateLimitErrorKind::UsageLimit);
+        if usage_limit_error {
+            self.input_queue.suppress_queue_autosend = true;
+            self.bottom_pane
+                .set_queue_submissions(/*queue_submissions*/ true);
+            if self.pending_usage_limit_resume_turn.is_none()
+                && let Some(prompt) = self.usage_limit_resume_prompt()
+            {
+                self.pending_usage_limit_resume_turn = Some(UserMessage::from(prompt));
+                self.usage_limit_resume_waiting_for_auth_reload = true;
+            }
+        }
         let rate_limit_reached_type = self.codex_rate_limit_reached_type.map(|kind| {
             if usage_limit_error {
                 match kind {
@@ -517,6 +584,16 @@ impl ChatWidget {
         }
         self.add_to_history(history_cell::new_warning_event(message));
         self.request_redraw();
+    }
+
+    /// Resume after a `ServerOverloaded` backoff delay, unless the retry is stale.
+    pub(crate) fn on_server_overloaded_retry(&mut self, attempt: u8, generation: u64) {
+        if self.server_overloaded_resume_attempts != attempt
+            || self.server_overloaded_resume_generation != generation
+        {
+            return;
+        }
+        self.maybe_send_next_queued_input();
     }
 
     pub(super) fn on_app_server_model_verification(

@@ -24,6 +24,8 @@ use crate::app_server_session::AppServerSession;
 use crate::app_server_session::AppServerStartedThread;
 use crate::app_server_session::TurnPermissionsOverride;
 use crate::app_server_session::app_server_rate_limit_snapshots;
+use crate::app_server_session::account_state_from_get_account_response;
+use crate::auth_watch::AuthWatch;
 use crate::bottom_pane::AppLinkViewParams;
 use crate::bottom_pane::ApplyPatchApprovalRequest;
 use crate::bottom_pane::ApprovalRequest;
@@ -75,6 +77,8 @@ use crate::resume_picker::SessionSelection;
 use crate::resume_picker::SessionTarget;
 use crate::session_state::ThreadSessionState;
 use crate::startup_draft::StartupDraftPump;
+use crate::status::StatusAccountDisplay;
+use crate::status::plan_type_display_name;
 #[cfg(test)]
 use crate::test_support::PathBufExt;
 #[cfg(test)]
@@ -152,6 +156,7 @@ use codex_models_manager::model_presets::HIDE_GPT5_1_MIGRATION_PROMPT_CONFIG;
 use codex_otel::SessionTelemetry;
 use codex_otel::TelemetryAuthMode;
 use codex_protocol::ThreadId;
+use codex_protocol::account::PlanType;
 use codex_protocol::config_types::Personality;
 #[cfg(target_os = "windows")]
 use codex_protocol::config_types::WindowsSandboxLevel;
@@ -545,6 +550,9 @@ pub(crate) struct App {
     pub(crate) app_event_tx: AppEventSender,
     pub(crate) chat_widget: ChatWidget,
     workspace_command_runner: Option<WorkspaceCommandRunner>,
+    /// Watches `CODEX_HOME/auth.json` and emits reload events while the TUI runs.
+    /// Kept alive for the lifetime of `App`; the watcher stops on drop.
+    _auth_watch: Option<AuthWatch>,
     /// Legacy bootstrap and server-setting inputs; local preferences live in `local_settings`.
     pub(crate) config: Config,
     pub(crate) local_settings: crate::local_settings::LocalSettings,
@@ -664,6 +672,8 @@ pub(crate) struct App {
     // persist an older toggle after a newer one.
     pending_hook_enabled_writes: HashMap<String, Option<bool>>,
     recap: recap::RecapState,
+    /// Background poller that keeps rate-limit snapshots fresh while idle.
+    rate_limit_poll_task: Option<JoinHandle<()>>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -798,7 +808,141 @@ fn active_turn_interrupt_race(error: &TypedRequestError) -> Option<String> {
     )
 }
 
+const AUTH_RELOAD_RETRY_DELAY: Duration = Duration::from_secs(5);
+const AUTH_RELOAD_MAX_ATTEMPTS: u8 = 3;
+
+/// Refresh-relevant account identity used to detect and describe auth changes.
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct AuthIdentity {
+    email: Option<String>,
+    plan_type: Option<PlanType>,
+    has_chatgpt_account: bool,
+}
+
+impl AuthIdentity {
+    fn from_chat_widget(chat_widget: &ChatWidget) -> Self {
+        Self::from_parts(
+            &chat_widget.status_account_display().cloned(),
+            chat_widget.current_plan_type(),
+            chat_widget.has_chatgpt_account(),
+        )
+    }
+
+    fn from_parts(
+        status_account_display: &Option<StatusAccountDisplay>,
+        plan_type: Option<PlanType>,
+        has_chatgpt_account: bool,
+    ) -> Self {
+        let email = match status_account_display {
+            Some(StatusAccountDisplay::ChatGpt { email, .. }) => email.clone(),
+            Some(StatusAccountDisplay::ApiKey) | None => None,
+        };
+        Self {
+            email,
+            plan_type,
+            has_chatgpt_account,
+        }
+    }
+
+    fn display_label(&self) -> String {
+        if !self.has_chatgpt_account {
+            return "API key".to_string();
+        }
+        let email = self.email.as_deref().unwrap_or("unknown email");
+        let plan = self
+            .plan_type
+            .map(plan_type_display_name)
+            .unwrap_or_else(|| "unknown plan".to_string());
+        format!("{email}({plan})")
+    }
+}
+
+fn auth_change_message(previous: &AuthIdentity, next: &AuthIdentity) -> String {
+    format!(
+        "Account changed from {} to {}.",
+        previous.display_label(),
+        next.display_label()
+    )
+}
+
 impl App {
+    fn stop_rate_limit_polling(&mut self) {
+        if let Some(task) = self.rate_limit_poll_task.take() {
+            task.abort();
+        }
+    }
+
+    fn schedule_auth_reload_retry(&self, attempt: u8) {
+        let app_event_tx = self.app_event_tx.clone();
+        tokio::spawn(async move {
+            tokio::time::sleep(AUTH_RELOAD_RETRY_DELAY).await;
+            app_event_tx.send(AppEvent::AuthFileChangedRetry { attempt });
+        });
+    }
+
+    /// Reload auth from storage after `auth.json` changed on disk.
+    ///
+    /// Reload is deferred while a task is running so auth is never hot-swapped in
+    /// the middle of a turn. Transient storage failures retry with a short
+    /// backoff before surfacing a warning, and the previously cached auth is kept
+    /// until a reload actually succeeds.
+    pub(crate) async fn handle_auth_file_changed(
+        &mut self,
+        app_server: &mut AppServerSession,
+        attempt: u8,
+    ) {
+        if self.chat_widget.is_task_running() {
+            self.chat_widget.defer_auth_reload_until_idle(attempt);
+            return;
+        }
+        let previous = AuthIdentity::from_chat_widget(&self.chat_widget);
+        match app_server.reload_account_from_storage().await {
+            Ok(account) => {
+                let (display, plan_type, has_chatgpt_account, has_codex_backend_auth) =
+                    account_state_from_get_account_response(&account);
+                let next = AuthIdentity::from_parts(&display, plan_type, has_chatgpt_account);
+                let changed = account.auth_changed;
+                self.chat_widget.update_account_state(
+                    display,
+                    plan_type,
+                    has_chatgpt_account,
+                    has_codex_backend_auth,
+                );
+                if changed {
+                    self.chat_widget.handle_auth_identity_changed();
+                    self.chat_widget.add_to_history(history_cell::new_warning_event(
+                        auth_change_message(&previous, &next),
+                    ));
+                }
+                self.chat_widget.on_auth_reload_completed(changed);
+                if has_chatgpt_account {
+                    self.start_rate_limit_polling();
+                    let reset_hint_request_id =
+                        self.chat_widget.start_rate_limit_reset_startup_check();
+                    self.refresh_rate_limits(
+                        app_server,
+                        RateLimitRefreshOrigin::StartupPrefetch { reset_hint_request_id },
+                    );
+                } else {
+                    // API-key auth has no ChatGPT usage limits to poll.
+                    self.stop_rate_limit_polling();
+                    self.chat_widget.on_rate_limit_snapshot(/*snapshot*/ None);
+                }
+            }
+            Err(_err) if attempt < AUTH_RELOAD_MAX_ATTEMPTS => {
+                self.schedule_auth_reload_retry(attempt.saturating_add(1));
+            }
+            Err(err) => {
+                tracing::warn!(%err, "failed to reload auth from storage");
+                self.chat_widget
+                    .on_auth_reload_completed(/*identity_changed*/ false);
+                self.chat_widget.add_to_history(history_cell::new_warning_event(
+                    "Failed to reload auth after auth.json changed.".to_string(),
+                ));
+            }
+        }
+    }
+
     pub fn chatwidget_init_for_forked_or_resumed_thread(
         &self,
         tui: &mut tui::Tui,
@@ -1051,6 +1195,7 @@ impl App {
 
 impl Drop for App {
     fn drop(&mut self) {
+        self.stop_rate_limit_polling();
         if let Err(err) = self.chat_widget.clear_managed_terminal_title() {
             tracing::debug!(error = %err, "failed to clear terminal title on app drop");
         }

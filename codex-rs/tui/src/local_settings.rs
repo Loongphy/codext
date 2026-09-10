@@ -44,6 +44,8 @@ impl From<&Config> for LocalSettings {
                 session_picker_view: Some(config.tui_session_picker_view),
                 resume_cwd: config.tui_resume_cwd,
                 keymap: config.tui_keymap.clone(),
+                usage_limit_resume_prompt: config.tui_usage_limit_resume_prompt.clone(),
+                server_overloaded_resume: config.tui_server_overloaded_resume,
                 model_availability_nux: config.model_availability_nux.clone(),
                 terminal_resize_reflow_max_rows: match config.terminal_resize_reflow.max_rows {
                     TerminalResizeReflowMaxRows::Auto => None,

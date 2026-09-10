@@ -85,6 +85,9 @@ pub(crate) struct TurnRequestProcessor {
     pending_thread_unloads: Arc<Mutex<HashSet<ThreadId>>>,
     thread_state_manager: ThreadStateManager,
     thread_watch_manager: ThreadWatchManager,
+    /// Serializes auth reloads against turn starts so an in-flight `turn/start`
+    /// never observes a half-applied auth transition.
+    auth_transition_lock: Arc<Mutex<()>>,
     thread_list_state_permit: Arc<Semaphore>,
     skills_watcher: Arc<SkillsWatcher>,
     turn_cost_worker: Option<crate::turn_cost_worker::TurnCostWorkerHandle>,
@@ -141,6 +144,7 @@ impl TurnRequestProcessor {
         pending_thread_unloads: Arc<Mutex<HashSet<ThreadId>>>,
         thread_state_manager: ThreadStateManager,
         thread_watch_manager: ThreadWatchManager,
+        auth_transition_lock: Arc<Mutex<()>>,
         thread_list_state_permit: Arc<Semaphore>,
         skills_watcher: Arc<SkillsWatcher>,
         turn_cost_worker: Option<crate::turn_cost_worker::TurnCostWorkerHandle>,
@@ -158,6 +162,7 @@ impl TurnRequestProcessor {
             pending_thread_unloads,
             thread_state_manager,
             thread_watch_manager,
+            auth_transition_lock,
             thread_list_state_permit,
             skills_watcher,
             turn_cost_worker,
@@ -518,6 +523,7 @@ impl TurnRequestProcessor {
         app_server_client_name: Option<String>,
         app_server_client_version: Option<String>,
     ) -> Result<TurnStartResponse, JSONRPCErrorError> {
+        let _auth_transition_guard = self.auth_transition_lock.lock().await;
         let (thread_id, thread) =
             self.load_thread(&params.thread_id)
                 .await
@@ -526,6 +532,17 @@ impl TurnRequestProcessor {
                 })?;
         self.ensure_direct_input_allowed(&request_id, thread.as_ref())
             .await?;
+        reload_auth_from_storage_if_idle(
+            &self.auth_manager,
+            &self.thread_manager,
+            &self.config_manager,
+            &self.outgoing,
+            &self.thread_watch_manager,
+            &self.config.chatgpt_base_url,
+            self.config.http_client_factory(),
+            "turn/start",
+        )
+        .await;
         if let Some(tool_output) = &params.tool_output {
             if !params.input.is_empty() {
                 return Err(invalid_request(
@@ -665,6 +682,9 @@ impl TurnRequestProcessor {
                 return Err(error);
             }
         };
+        self.thread_watch_manager
+            .note_turn_started(&thread_id.to_string())
+            .await;
 
         if turn_has_input && started {
             let config_snapshot = thread.config_snapshot().await;
