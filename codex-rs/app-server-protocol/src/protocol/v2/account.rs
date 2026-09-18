@@ -562,6 +562,16 @@ pub struct GetAccountResponse {
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, JsonSchema, TS)]
 #[serde(rename_all = "camelCase")]
 #[ts(export_to = "v2/")]
+pub struct ReloadAccountResponse {
+    pub account: Option<Account>,
+    pub requires_openai_auth: bool,
+    /// Whether this request reloaded a different auth snapshot from storage.
+    pub auth_changed: bool,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, JsonSchema, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export_to = "v2/")]
 pub struct AccountUpdatedNotification {
     pub auth_mode: Option<AuthMode>,
     pub plan_type: Option<PlanType>,

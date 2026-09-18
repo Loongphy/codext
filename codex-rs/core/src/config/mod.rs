@@ -821,6 +821,16 @@ pub struct Config {
     /// 3. built-in defaults
     pub tui_keymap: TuiKeymap,
 
+    /// Synthetic user-turn prompt injected after a `UsageLimitExceeded` turn
+    /// failure.
+    ///
+    /// `None` uses the built-in Codext default prompt. `Some("")` disables the
+    /// automatic recovery turn.
+    pub tui_usage_limit_resume_prompt: Option<String>,
+
+    /// Whether to automatically submit `Continue` after a turn fails with `ServerOverloaded`.
+    pub tui_server_overloaded_resume: bool,
+
     /// The absolute directory that should be treated as the current working
     /// directory for the session. All relative paths inside the business-logic
     /// layer are resolved against this path.
@@ -4437,6 +4447,15 @@ impl Config {
                 .as_ref()
                 .map(|t| t.keymap.clone())
                 .unwrap_or_default(),
+            tui_usage_limit_resume_prompt: cfg
+                .tui
+                .as_ref()
+                .and_then(|t| t.usage_limit_resume_prompt.clone()),
+            tui_server_overloaded_resume: cfg
+                .tui
+                .as_ref()
+                .map(|t| t.server_overloaded_resume)
+                .unwrap_or(true),
             otel,
         };
         Ok(config)

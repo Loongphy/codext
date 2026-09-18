@@ -21,7 +21,7 @@ Implementation must follow the status-header skill .agents/skills/status-header/
 - Git status is collected in the background (15s interval, 2s timeout) and rendered when available.
 - The directory segment represents the session/thread `cwd`, not a one-off tool `workdir`.
 - When the session `cwd` changes (for example after switching into a new worktree), the git-status poller now rebinds to that new `cwd`, clears stale git state, and ignores late results from the previous `cwd`.
-- ChatGPT `5h` / weekly usage-limit snapshots in the TUI now refresh in the background every 15 seconds, so the header and any `/statusline` limit items keep moving while the UI is otherwise idle.
+- ChatGPT `5h` / weekly usage-limit snapshots in the TUI now refresh in the background every 15 seconds, so the header and any `/statusline` limit items keep moving while the UI is otherwise idle. Reapply note: upstream `Periodic` rate-limit reads (capped at 15s, tightening to 5s near exhaustion) provide this cadence; the fork no longer needs a separate spawned poller.
 
 ## TUI auth.json watcher
 
@@ -62,6 +62,7 @@ Implementation must follow the status-header skill .agents/skills/status-header/
 - ChatGPT account/workspace switches inside the same auth mode are treated as auth changes by comparing the refresh-relevant auth snapshot, not only the top-level auth mode.
 - When a reload changes auth, loaded threads invalidate their cached model transport state so a reused WebSocket session created under the previous account is not used for the next turn.
 - The app-server also refreshes cloud requirements/default residency state and emits `AccountUpdated` after a changed reload so app UI account state follows the new snapshot.
+- The TUI drives its `auth.json` watcher through a dedicated `account/reload` RPC (response: account snapshot + `authChanged`), which performs the same idle-guarded storage reload. Earlier reapplies extended `account/read` with a `reloadAuthFromStorage` param and an `authChanged` response field; the dedicated RPC keeps upstream `GetAccountParams`/`GetAccountResponse` wire shapes untouched.
 - Reapply notes: keep `reload_auth_from_storage_if_idle` wired into all three request entry points, preserve the idle guard, and preserve the invalidation chain `ThreadManager::invalidate_model_transport_caches` -> `CodexThread::invalidate_model_transport_cache` -> `ModelClient::invalidate_cached_transport_state`.
 
 ## TUI exit resume command

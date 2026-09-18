@@ -4237,6 +4237,11 @@
           "default": null,
           "description": "Working directory to use when resuming or forking a session. When unset, prompt if the current and session directories differ."
         },
+        "server_overloaded_resume": {
+          "default": true,
+          "description": "Automatically submit `Continue` after a turn fails with `ServerOverloaded`. Defaults to `true`.",
+          "type": "boolean"
+        },
         "session_picker_view": {
           "allOf": [
             {
@@ -4287,6 +4292,11 @@
         "theme": {
           "default": null,
           "description": "Syntax highlighting theme name (kebab-case).\n\nWhen set, overrides automatic light/dark theme detection. Use `/theme` in the TUI or see `$CODEX_HOME/themes` for custom themes.",
+          "type": "string"
+        },
+        "usage_limit_resume_prompt": {
+          "default": null,
+          "description": "Optional synthetic user-turn prompt injected after a turn fails with `UsageLimitExceeded`.\n\nWhen unset, Codext uses the built-in default recovery prompt. When set to an empty string, Codext disables this automatic recovery turn.",
           "type": "string"
         },
         "vim_mode_default": {

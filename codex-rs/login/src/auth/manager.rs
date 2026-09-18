@@ -1847,6 +1847,16 @@ enum ReloadOutcome {
     Skipped,
 }
 
+/// Outcome of an unconditional auth reload from storage.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AuthReloadStatus {
+    /// Storage was reloaded; `changed` reports whether the refresh-relevant
+    /// auth snapshot differs from the previously cached one.
+    Reloaded { changed: bool },
+    /// Storage could not be read; the cached auth was left untouched.
+    Failed,
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum UnauthorizedRecoveryMode {
     Managed,
@@ -2455,6 +2465,29 @@ impl AuthManager {
         self.set_cached_auth(new_auth)
     }
 
+    /// Force a reload of auth information from storage.
+    ///
+    /// Unlike [`Self::reload`], this always reads from the on-disk storage path
+    /// (the same loader used by [`Self::load_auth_from_storage`]) and surfaces
+    /// read failures instead of silently keeping the cached auth. The returned
+    /// [`AuthReloadStatus`] reports whether storage could be read and whether the
+    /// refresh-relevant auth snapshot changed.
+    pub async fn reload_with_status(&self) -> AuthReloadStatus {
+        tracing::info!("Reloading auth");
+        let new_auth = match self.load_auth_from_storage().await {
+            Ok(new_auth) => new_auth,
+            Err(err) => {
+                tracing::warn!(
+                    %err,
+                    "Failed to reload auth from storage; keeping current auth state"
+                );
+                return AuthReloadStatus::Failed;
+            }
+        };
+        let changed = self.set_cached_auth(new_auth);
+        AuthReloadStatus::Reloaded { changed }
+    }
+
     async fn reload_if_account_id_matches(
         &self,
         expected_account_id: Option<&str>,
@@ -2513,14 +2546,6 @@ impl AuthManager {
                 (AuthMode::BedrockAccessKeys, AuthMode::BedrockAccessKeys) => a == b,
                 _ => false,
             },
-            _ => false,
-        }
-    }
-
-    fn auths_equal(a: Option<&CodexAuth>, b: Option<&CodexAuth>) -> bool {
-        match (a, b) {
-            (None, None) => true,
-            (Some(a), Some(b)) => a == b,
             _ => false,
         }
     }
@@ -2596,20 +2621,22 @@ impl AuthManager {
         })
     }
 
+    /// Cache the reloaded auth and report whether the refresh-relevant snapshot changed.
+    ///
+    /// Comparing the refresh-relevant snapshot (rather than every `CodexAuth` field)
+    /// treats a ChatGPT account/workspace switch inside the same auth mode as a real
+    /// auth change while ignoring unrelated bookkeeping differences.
     fn set_cached_auth(&self, new_auth: Option<CodexAuth>) -> bool {
         if let Ok(mut guard) = self.inner.write() {
             let previous = guard.auth.as_ref();
-            let changed = !AuthManager::auths_equal(previous, new_auth.as_ref());
-            let auth_changed_for_refresh =
-                !Self::auths_equal_for_refresh(previous, new_auth.as_ref());
-            let owner_changed =
-                auth_changed_for_refresh && !same_owner(previous, new_auth.as_ref());
-            if auth_changed_for_refresh {
+            let changed = !Self::auths_equal_for_refresh(previous, new_auth.as_ref());
+            let owner_changed = changed && !same_owner(previous, new_auth.as_ref());
+            if changed {
                 guard.permanent_refresh_failure = None;
             }
             tracing::info!("Reloaded auth, changed: {changed}");
             guard.auth = new_auth;
-            if auth_changed_for_refresh {
+            if changed {
                 self.auth_change_state_tx.send_modify(|state| {
                     state.generation += 1;
                     if owner_changed {
@@ -2622,6 +2649,23 @@ impl AuthManager {
         } else {
             false
         }
+    }
+
+    /// Read auth straight from on-disk storage, bypassing the active-source loader.
+    async fn load_auth_from_storage(&self) -> std::io::Result<Option<CodexAuth>> {
+        let forced_chatgpt_workspace_id = self.forced_chatgpt_workspace_id();
+        load_auth(
+            &self.codex_home,
+            self.enable_codex_api_key_env,
+            self.auth_credentials_store_mode,
+            /*allowed_login_methods*/ None,
+            forced_chatgpt_workspace_id.as_deref(),
+            self.chatgpt_base_url.as_deref(),
+            self.keyring_backend_kind,
+            self.agent_identity_authapi_base_url.as_deref(),
+            &self.auth_route_config,
+        )
+        .await
     }
 
     pub async fn set_external_auth(
