@@ -533,6 +533,13 @@ impl ModelClient {
         self.state.provider.auth_manager()
     }
 
+    /// Invalidate any cached model-transport state (for example a reused
+    /// WebSocket session) so the next turn re-establishes transport for the
+    /// current auth snapshot.
+    pub(crate) fn invalidate_cached_transport_state(&self) {
+        self.store_cached_websocket_session(WebsocketSession::default());
+    }
+
     fn auth_owner_generation(&self) -> Option<u64> {
         self.auth_manager().map(|manager| {
             manager

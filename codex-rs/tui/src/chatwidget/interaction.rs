@@ -70,6 +70,20 @@ impl ChatWidget {
                 modifiers,
                 kind: KeyEventKind::Press,
                 ..
+            } if modifiers == KeyModifiers::CONTROL.union(KeyModifiers::SHIFT)
+                && c.eq_ignore_ascii_case(&'c') =>
+            {
+                if self.on_ctrl_shift_c() {
+                    return;
+                }
+                self.on_ctrl_c();
+                return;
+            }
+            KeyEvent {
+                code: KeyCode::Char(c),
+                modifiers,
+                kind: KeyEventKind::Press,
+                ..
             } if modifiers.contains(KeyModifiers::CONTROL) && c.eq_ignore_ascii_case(&'c') => {
                 self.on_ctrl_c();
                 return;
@@ -538,6 +552,36 @@ impl ChatWidget {
         } else {
             false
         }
+    }
+
+    /// Copies the composer draft to the system clipboard when it contains text.
+    ///
+    /// Returns `true` when the copy path handled the key; the caller then falls back to the
+    /// regular `Ctrl+C` behavior otherwise.
+    fn on_ctrl_shift_c(&mut self) -> bool {
+        if !self.bottom_pane.no_modal_or_popup_active() {
+            return false;
+        }
+
+        let draft = self.bottom_pane.composer_text_with_pending();
+        if draft.trim().is_empty() {
+            return false;
+        }
+
+        match crate::clipboard_copy::copy_to_clipboard(&draft, CopyFormat::PlainText) {
+            Ok(lease) => {
+                self.clipboard_lease = lease;
+                self.add_to_history(history_cell::new_info_event(
+                    "Copied draft to clipboard".into(),
+                    /*hint*/ None,
+                ));
+            }
+            Err(error) => self.add_to_history(history_cell::new_error_event(format!(
+                "Copy failed: {error}"
+            ))),
+        }
+        self.request_redraw();
+        true
     }
 
     /// Handles a Ctrl+C press at the chat-widget layer.

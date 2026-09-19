@@ -1437,6 +1437,14 @@ client_request_definitions! {
         response: v2::GetAccountResponse,
     },
 
+    /// Reloads the auth snapshot from storage when no turn is running and
+    /// returns the refreshed account state.
+    ReloadAccount => "account/reload" {
+        params: #[ts(type = "undefined")] #[serde(skip_serializing_if = "Option::is_none")] Option<()>,
+        serialization: global("account-auth"),
+        response: v2::ReloadAccountResponse,
+    },
+
     /// DEPRECATED APIs below
     GetConversationSummary => "getConversationSummary" {
         params: v1::GetConversationSummaryParams,

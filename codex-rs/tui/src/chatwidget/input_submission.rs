@@ -422,13 +422,21 @@ impl ChatWidget {
         let render_before_submit =
             render_in_history && matches!(&self.codex_op_target, CodexOpTarget::AppEvent);
         if render_before_submit {
-            self.on_user_message_display(user_message_display_for_history(
+            let display = user_message_display_for_history(
                 submitted_message.clone(),
                 &history_record,
-            ));
+            );
+            self.pending_local_user_message_echo = Some(PendingLocalUserMessageEcho {
+                display: display.clone(),
+                turn_id: None,
+            });
+            self.on_user_message_display(display);
         }
 
         if !self.submit_op(op.clone()) {
+            if render_before_submit {
+                self.pending_local_user_message_echo = None;
+            }
             return (false, None);
         }
         if source == UserMessageSource::Prompt {

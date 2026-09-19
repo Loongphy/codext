@@ -241,6 +241,18 @@ impl CodexThread {
         self.io.shutdown_and_wait().await
     }
 
+    /// Invalidate cached model-transport state so a subsequent turn
+    /// re-establishes transport for the current auth snapshot.
+    ///
+    /// Used after an auth reload that changes the account so a WebSocket session
+    /// created under the previous account is not reused.
+    pub(crate) fn invalidate_model_transport_cache(&self) {
+        self.session
+            .services
+            .model_client
+            .invalidate_cached_transport_state();
+    }
+
     /// Wait until the underlying session loop has terminated.
     pub async fn wait_until_terminated(&self) {
         self.io.session_loop_termination.clone().await;
