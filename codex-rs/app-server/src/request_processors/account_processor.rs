@@ -92,6 +92,10 @@ pub(crate) struct AccountRequestProcessor {
     outgoing: Arc<OutgoingMessageSender>,
     config: Arc<Config>,
     config_manager: ConfigManager,
+    thread_watch_manager: ThreadWatchManager,
+    /// Serializes auth reloads against turn starts so an in-flight `turn/start`
+    /// never observes a half-applied auth transition.
+    auth_transition_lock: Arc<Mutex<()>>,
     active_login: Arc<Mutex<Option<ActiveLogin>>>,
     workspace_routing: Arc<Mutex<Option<workspace_routing::CachedWorkspaceRouting>>>,
     workspace_routing_fetches: Arc<Mutex<workspace_routing::WorkspaceRoutingFetches>>,
@@ -105,6 +109,8 @@ impl AccountRequestProcessor {
         outgoing: Arc<OutgoingMessageSender>,
         config: Arc<Config>,
         config_manager: ConfigManager,
+        thread_watch_manager: ThreadWatchManager,
+        auth_transition_lock: Arc<Mutex<()>>,
     ) -> Arc<Self> {
         let processor = Arc::new(Self {
             auth_manager,
@@ -112,6 +118,8 @@ impl AccountRequestProcessor {
             outgoing,
             config,
             config_manager,
+            thread_watch_manager,
+            auth_transition_lock,
             active_login: Arc::new(Mutex::new(None)),
             workspace_routing: Arc::new(Mutex::new(None)),
             workspace_routing_fetches: Arc::new(Mutex::new(HashMap::new())),
@@ -150,6 +158,66 @@ impl AccountRequestProcessor {
         self.cancel_login_response(params)
             .await
             .map(|response| Some(response.into()))
+    }
+
+    /// Reloads the auth snapshot from storage when no turn is running and
+    /// returns the refreshed account state.
+    ///
+    /// This keeps long-lived clients in sync with `auth.json` updates without
+    /// hot-swapping auth in the middle of an active turn. When a turn is
+    /// running the reload is skipped and `auth_changed` reports `false`.
+    pub(crate) async fn reload_account(
+        &self,
+    ) -> Result<Option<ClientResponsePayload>, JSONRPCErrorError> {
+        let mut auth_changed = false;
+        {
+            let _auth_transition_guard = self.auth_transition_lock.lock().await;
+            if *self
+                .thread_watch_manager
+                .subscribe_running_turn_count()
+                .borrow()
+                == 0
+            {
+                let status = self.auth_manager.reload_with_status().await;
+                match handle_auth_reload_status(
+                    status,
+                    &self.auth_manager,
+                    &self.thread_manager,
+                    &self.config_manager,
+                    &self.outgoing,
+                    &self.config.chatgpt_base_url,
+                    self.config.http_client_factory(),
+                    "account/reload",
+                )
+                .await
+                {
+                    AuthReloadStatus::Reloaded { changed } => auth_changed = changed,
+                    AuthReloadStatus::Failed => {
+                        return Err(internal_error("failed to reload auth from storage"));
+                    }
+                }
+            }
+        }
+
+        let read = self
+            .read_account(/*request*/ None)
+            .await
+            .map_err(|error| match error {
+                workspace_routing::AccountReadError::InvalidAccount(error) => {
+                    invalid_request(error.to_string())
+                }
+                workspace_routing::AccountReadError::Routing(error) => {
+                    internal_error(error.to_string())
+                }
+            })?;
+        Ok(Some(
+            ReloadAccountResponse {
+                account: read.account_state.account.map(Account::from),
+                requires_openai_auth: read.account_state.requires_openai_auth,
+                auth_changed,
+            }
+            .into(),
+        ))
     }
 
     pub(crate) async fn get_auth_status(

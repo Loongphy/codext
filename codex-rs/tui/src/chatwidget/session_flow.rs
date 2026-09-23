@@ -105,6 +105,7 @@ impl ChatWidget {
         self.current_rollout_path = session.rollout_path.clone();
         self.current_cwd = Some(session.cwd.to_path_buf());
         self.config.cwd = session.cwd.clone();
+        self.sync_status_header_git_status_poller();
         self.config.model_provider_id = session.model_provider_id.clone();
         if connector_scope_changed {
             self.invalidate_connector_scope();
@@ -348,7 +349,7 @@ impl ChatWidget {
             }
         }
         self.transcript.last_plan_progress = None;
-        self.last_rendered_user_message_display = None;
+        self.pending_local_user_message_echo = None;
         self.last_rendered_user_message_client_id = None;
         self.clear_pending_rate_limit_reset_hint();
         self.set_token_info(/*info*/ None);
