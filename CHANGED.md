@@ -74,3 +74,4 @@ Implementation must follow the status-header skill .agents/skills/status-header/
 
 - Release builds and npm platform packages ship `codex-code-mode-host` beside the `codext` CLI binary so code mode can start from installed and locally packaged artifacts.
 - The upstream release matrix is audited during reapply instead of assuming that copying the previous fork workflow preserves all companion binaries.
+- The upstream `codex-responses-api-proxy` package/binary is intentionally not shipped: it is a standalone debugging proxy, not a companion required by `codext` or `codex-code-mode-host`.

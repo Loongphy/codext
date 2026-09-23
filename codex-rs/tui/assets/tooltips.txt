@@ -22,7 +22,7 @@ When the composer is empty, press `Esc` to step back and edit your last message;
 Press {key:composer.queue} to queue a message when a task is running; otherwise it sends immediately (except `!`).
 Use **/keymap** to configure keyboard shortcuts.
 Paste an image with `Ctrl+V` to attach it to your next message.
-You can resume a previous conversation by running `codex resume`
+You can resume a previous conversation by running `codext resume`
 Use **/copy** or press {key:global.copy} to copy the latest agent response as Markdown.
 Use **/vim** to toggle Vim editing in the composer.
 Moving from Claude Code? Use **/import** to bring over your setup, project, and recent chats.
