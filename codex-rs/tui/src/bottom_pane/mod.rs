@@ -2113,7 +2113,17 @@ impl BottomPane {
 
     pub(crate) fn as_renderable_with_options<'a>(
         &'a self,
+        options: ComposerRenderOptions<'a>,
+    ) -> RenderableItem<'a> {
+        self.as_renderable_with_options_and_header(options, /*composer_header*/ None)
+    }
+
+    /// Same as [`Self::as_renderable_with_options`], with an optional header row
+    /// rendered between the status/preview stack and the composer.
+    pub(crate) fn as_renderable_with_options_and_header<'a>(
+        &'a self,
         mut options: ComposerRenderOptions<'a>,
+        composer_header: Option<RenderableItem<'a>>,
     ) -> RenderableItem<'a> {
         if self.warnings_active()
             && let Some(warnings) = &self.warnings_view
@@ -2235,6 +2245,9 @@ impl BottomPane {
                 flex.into()
             };
             flex2.push(/*flex*/ 1, RenderableItem::Owned(above_composer));
+            if let Some(composer_header) = composer_header {
+                flex2.push(/*flex*/ 0, composer_header);
+            }
             let composer: RenderableItem<'_> = if let Some(questions) = question_editor {
                 RenderableItem::Borrowed(questions.as_ref())
             } else if options.textarea_right_reserve == 0

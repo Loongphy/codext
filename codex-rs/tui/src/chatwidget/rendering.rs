@@ -233,16 +233,19 @@ impl ChatWidget {
             } else {
                 self.ambient_pet_wrap_reserved_cols()
             };
-            self.bottom_pane
-                .as_renderable_with_options(crate::bottom_pane::ComposerRenderOptions {
-                    composer_gap,
-                    warning_count: self.warning_display_state.count,
-                    textarea_right_reserve: right_reserve,
-                    separate_status_line: command_popup_placement
-                        != crate::bottom_pane::CommandPopupPlacement::AboveComposer,
-                    command_popup_placement,
-                    footer,
-                })
+            let options = crate::bottom_pane::ComposerRenderOptions {
+                composer_gap,
+                warning_count: self.warning_display_state.count,
+                textarea_right_reserve: right_reserve,
+                separate_status_line: command_popup_placement
+                    != crate::bottom_pane::CommandPopupPlacement::AboveComposer,
+                command_popup_placement,
+                footer,
+            };
+            RenderableItem::Owned(Box::new(BottomPaneComposerHeaderRenderable {
+                chat_widget: self,
+                options,
+            }))
         }
     }
 
@@ -292,6 +295,48 @@ impl ChatWidget {
 
     pub(crate) fn note_rendered_width(&self, width: u16) {
         self.last_rendered_width.set(Some(width));
+    }
+}
+
+/// Renders the bottom pane together with the status header that sits above the composer.
+///
+/// The header depends on live widget state, so it is rebuilt for each render pass
+/// instead of being cached in the bottom pane.
+struct BottomPaneComposerHeaderRenderable<'a> {
+    chat_widget: &'a ChatWidget,
+    options: crate::bottom_pane::ComposerRenderOptions<'a>,
+}
+
+impl BottomPaneComposerHeaderRenderable<'_> {
+    fn item(&self) -> RenderableItem<'_> {
+        self.chat_widget
+            .bottom_pane
+            .as_renderable_with_options_and_header(
+                self.options,
+                super::status_header::renderable(self.chat_widget),
+            )
+    }
+}
+
+impl Renderable for BottomPaneComposerHeaderRenderable<'_> {
+    fn render(&self, area: Rect, buf: &mut Buffer) {
+        self.item().render(area, buf);
+    }
+
+    fn desired_height(&self, width: u16) -> u16 {
+        self.item().desired_height(width)
+    }
+
+    fn render_scrolled(&self, area: Rect, buf: &mut Buffer, scroll_offset: u16) -> bool {
+        self.item().render_scrolled(area, buf, scroll_offset)
+    }
+
+    fn cursor_pos(&self, area: Rect) -> Option<(u16, u16)> {
+        self.item().cursor_pos(area)
+    }
+
+    fn cursor_style(&self, area: Rect) -> crossterm::cursor::SetCursorStyle {
+        self.item().cursor_style(area)
     }
 }
 
