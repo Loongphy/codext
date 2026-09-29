@@ -43,6 +43,12 @@ The TUI header provides a compact overview of the active session:
 * **`Ctrl+Shift+C`**: Copies the current draft to the system clipboard.
 * **`Ctrl+C`**: Retains existing behavior; remains backward-compatible with legacy logic when the draft is empty.
 
+### Rename Sessions in the Picker
+
+* **`Ctrl+R`** in `codext resume` (the `/resume` picker): Opens a blank inline editor to give the highlighted session a new name.
+* **`Enter`**: Saves the name and updates the picker in place.
+* **`Esc`**: Cancels the rename and returns to search mode.
+
 ### Prompt Queue on usage limit
 
 ![Prompt Queue](https://github.com/user-attachments/assets/534e927d-a306-4fef-b97c-629542bf8906)

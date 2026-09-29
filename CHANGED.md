@@ -11,6 +11,14 @@ This file captures the fork-specific behavior reapplied on top of the current up
 - `Ctrl+Shift+C` now takes its own composer-copy path instead of falling through to the existing `Ctrl+C` clear/interrupt/quit behavior when draft text is present.
 - Added footer shortcut help text for the new draft-copy binding.
 
+## TUI resume picker rename
+
+- Added `Ctrl+R` in the `/resume` picker to rename the highlighted session inline, reusing the picker search line as the editor. The draft starts empty so a new name can be typed directly.
+- `Enter` submits through the existing `thread/name/set` app-server request; `Esc` cancels back to search mode.
+- Empty or whitespace-only names are rejected inline; failed requests keep the editor open so the rename can be retried.
+- On success the row updates in place, the search filter re-applies, and selection stays on the renamed thread when possible.
+- The shortcut only claims `Ctrl+R` when no existing list keymap or custom binding uses it; archived sessions are read-only and cannot be renamed.
+
 ## TUI status header and polling
 
 Implementation must follow the status-header skill .agents/skills/status-header/SKILL.md
