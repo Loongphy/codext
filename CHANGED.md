@@ -77,6 +77,16 @@ Implementation must follow the status-header skill .agents/skills/status-header/
 - Added a fork requirement that user-facing resume hints use `codext resume <session>` / `codext resume <thread-name>` instead of `codex resume ...`.
 - This includes the final resume hint shown after exiting the TUI and other resume guidance surfaced inside the TUI.
 
+## Update channel points at Codext releases
+
+- Latest-version discovery queries `https://api.github.com/repos/Loongphy/codext/releases/latest` and the `@loongphy/codext` npm registry entry instead of `openai/codex` / `@openai/codex`.
+- Codext release tags are `codext-v<base>-<sha>`; `extract_version_from_latest_tag` accepts both `codext-v` and `rust-v` prefixes so upstream tests and tooling stay valid.
+- Update prompts compare only the base version triple (`is_newer_release` strips the `-<sha>` suffix), so pushes that rebuild the same upstream base do not retrigger the prompt.
+- `codext update` and the in-TUI "Update now" action run `npm/bun/vp/pnpm install -g @loongphy/codext`; release-note and install links point at `Loongphy/codext`.
+- `codext doctor` update diagnostics report the Codext channel too (latest-release probe, tag parsing, and npm-family update labels).
+- Homebrew cask, standalone installer, and daemon update variants still reference upstream artifacts; they are unreachable for Codext installs because no Codext cask or standalone installer exists.
+- Reapply notes: the Windows-only "absolute update command" error keeps the upstream docs URL because an existing test pins the message; snapshot files under `tui/src/snapshots` still contain upstream update URLs on purpose.
+
 ## Release artifact parity
 
 - Release builds and npm platform packages ship `codex-code-mode-host` beside the `codext` CLI binary so code mode can start from installed and locally packaged artifacts.
