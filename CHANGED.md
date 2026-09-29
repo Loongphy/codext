@@ -21,7 +21,6 @@ Implementation must follow the status-header skill .agents/skills/status-header/
 - Git status is collected in the background (15s interval, 2s timeout) and rendered when available.
 - The directory segment represents the session/thread `cwd`, not a one-off tool `workdir`.
 - When the session `cwd` changes (for example after switching into a new worktree), the git-status poller now rebinds to that new `cwd`, clears stale git state, and ignores late results from the previous `cwd`.
-- ChatGPT `5h` / weekly usage-limit snapshots in the TUI now refresh in the background every 15 seconds, so the header and any `/statusline` limit items keep moving while the UI is otherwise idle. Reapply note: upstream `Periodic` rate-limit reads (capped at 15s, tightening to 5s near exhaustion) provide this cadence; the fork no longer needs a separate spawned poller.
 
 ## TUI auth.json watcher
 

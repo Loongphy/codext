@@ -91,7 +91,7 @@ if let Some(label) = self.account_label.as_ref() {
 
 ## Async refresh
 
-- Rate limits: 15s background poll, redraw after each snapshot update
+- Rate limits: redraw whenever the rate-limit snapshot updates. Refresh cadence is provided by upstream `Periodic` rate-limit reads (capped at 15s, tightening to 5s near exhaustion); do not add a fork-owned poller.
 - Git status: 15s poll keyed by session `cwd`; retarget on cwd change, clear stale state, ignore late results
 - Directory = session/thread `cwd`, not tool `workdir`
 
