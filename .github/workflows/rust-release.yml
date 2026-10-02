@@ -596,6 +596,21 @@ jobs:
             exit 1
           fi
 
+          # Publish platform tarballs first: the main package's
+          # optionalDependencies alias to their versions, so publishing it last
+          # keeps fresh installs resolvable during the release window.
+          main_tarball="dist/npm/codex-npm-${VERSION}.tgz"
+          ordered_tarballs=()
+          for tarball in "${tarballs[@]}"; do
+            if [[ "${tarball}" != "${main_tarball}" ]]; then
+              ordered_tarballs+=("${tarball}")
+            fi
+          done
+          if [[ -f "${main_tarball}" ]]; then
+            ordered_tarballs+=("${main_tarball}")
+          fi
+          tarballs=("${ordered_tarballs[@]}")
+
           for tarball in "${tarballs[@]}"; do
             filename="$(basename "${tarball}")"
             publish_cmd=(npm publish "${GITHUB_WORKSPACE}/${tarball}" --access public)
