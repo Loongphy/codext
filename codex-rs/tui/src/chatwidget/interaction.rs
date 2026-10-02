@@ -11,6 +11,7 @@ use crate::clipboard_copy::worker::CopyResult;
 pub(crate) enum KeyEventAction {
     None,
     CopyLastResponse(Arc<str>),
+    CopyComposerDraft(Arc<str>),
     PasteImage,
 }
 
@@ -131,6 +132,20 @@ impl ChatWidget {
         }
 
         match key_event {
+            KeyEvent {
+                code: KeyCode::Char(c),
+                modifiers,
+                kind: KeyEventKind::Press,
+                ..
+            } if modifiers == KeyModifiers::CONTROL.union(KeyModifiers::SHIFT)
+                && c.eq_ignore_ascii_case(&'c') =>
+            {
+                if let Some(draft) = self.on_ctrl_shift_c() {
+                    return KeyEventAction::CopyComposerDraft(draft);
+                }
+                self.on_ctrl_c();
+                return KeyEventAction::None;
+            }
             KeyEvent {
                 code: KeyCode::Char(c),
                 modifiers,
@@ -497,6 +512,25 @@ impl ChatWidget {
         } else {
             false
         }
+    }
+
+    /// Returns the composer draft to copy to the system clipboard when it contains text.
+    ///
+    /// Returns `None` when the copy path does not apply; the caller then falls back to the
+    /// regular `Ctrl+C` behavior. The actual copy runs on the app clipboard worker via
+    /// [`KeyEventAction::CopyComposerDraft`].
+    fn on_ctrl_shift_c(&mut self) -> Option<Arc<str>> {
+        if !self.bottom_pane.no_modal_or_popup_active() {
+            return None;
+        }
+
+        let draft = self.bottom_pane.composer_text_with_pending();
+        if draft.trim().is_empty() {
+            return None;
+        }
+
+        self.request_redraw();
+        Some(draft.into())
     }
 
     /// Handles a Ctrl+C press at the chat-widget layer.

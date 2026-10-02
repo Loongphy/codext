@@ -40,6 +40,10 @@ pub(super) fn lines(props: &FooterProps, width: u16) -> Vec<Line<'static>> {
         },
         "Paste image",
     ));
+    compose.entries.push(Shortcut::new(
+        key_hint::ctrl_shift(KeyCode::Char('c')),
+        "Copy draft",
+    ));
     compose.push(hints.external_editor, "External editor");
     compose.push(hints.history_search, "Search history");
     if let Some(key) = hints.edit_previous {

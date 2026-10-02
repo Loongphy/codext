@@ -790,7 +790,7 @@ fn run_update_action(
     }
     println!();
     let cmd_str = action.command_str();
-    println!("Updating Codex via `{cmd_str}`...");
+    println!("Updating Codext via `{cmd_str}`...");
     let status = {
         #[cfg(windows)]
         {
@@ -832,7 +832,7 @@ fn run_update_action(
     if !status.success() {
         anyhow::bail!("`{cmd_str}` failed with status {status}");
     }
-    println!("\n🎉 Update ran successfully! Please restart Codex.");
+    println!("\n🎉 Update ran successfully! Please restart Codext.");
     Ok(())
 }
 
@@ -865,7 +865,7 @@ fn run_update_command() -> anyhow::Result<()> {
     {
         let Some(action) = codex_tui::get_update_action() else {
             anyhow::bail!(
-                "Could not detect the Codex installation method. Please update manually: https://developers.openai.com/codex/cli/"
+                "Could not detect the Codext installation method. Please update manually: https://github.com/Loongphy/codext/releases/latest"
             );
         };
         run_update_action(action, /*cli_executable*/ None)

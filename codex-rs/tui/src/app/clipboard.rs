@@ -18,6 +18,12 @@ impl App {
                     .copy(text, CopyFormat::Markdown, tui.frame_requester());
                 self.chat_widget.show_copy_result("last message", result);
             }
+            KeyEventAction::CopyComposerDraft(text) => {
+                let result = tui
+                    .clipboard
+                    .copy(text, CopyFormat::PlainText, tui.frame_requester());
+                self.chat_widget.show_copy_result("draft", result);
+            }
             KeyEventAction::PasteImage => {
                 // Finish paste before the next key, but never wait on the copy worker's lock.
                 if tui.clipboard.is_busy() {
