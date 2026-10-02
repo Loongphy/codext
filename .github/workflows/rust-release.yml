@@ -370,6 +370,10 @@ jobs:
           out_dir="${GITHUB_WORKSPACE}/dist/release"
           mkdir -p "${out_dir}"
 
+          # actions/download-artifact drops executable bits; restore them so the
+          # package builder accepts the prebuilt binaries.
+          find "${artifacts_root}" -type f -exec chmod a+x {} +
+
           # Each archive ships the canonical codex-package layout produced by
           # scripts/build_codex_package.py (bin/, codex-path/, codex-resources/,
           # codex-package.json) so the app-server daemon can seed a managed
@@ -496,6 +500,10 @@ jobs:
           set -euo pipefail
           artifacts_root="${RUNNER_TEMP}/artifacts"
           vendor_root="${RUNNER_TEMP}/npm-root/vendor"
+
+          # actions/download-artifact drops executable bits; restore them so the
+          # package builder accepts the prebuilt binaries.
+          find "${artifacts_root}" -type f -exec chmod a+x {} +
 
           # Each platform package vendors a complete canonical package dir built
           # by scripts/build_codex_package.py (bin/, codex-path/,
