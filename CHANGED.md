@@ -92,3 +92,12 @@ Implementation must follow the status-header skill .agents/skills/status-header/
 - Release builds and npm platform packages ship `codex-code-mode-host` beside the `codext` CLI binary so code mode can start from installed and locally packaged artifacts.
 - The upstream release matrix is audited during reapply instead of assuming that copying the previous fork workflow preserves all companion binaries.
 - The upstream `codex-responses-api-proxy` package/binary is intentionally not shipped: it is a standalone debugging proxy, not a companion required by `codext` or `codex-code-mode-host`.
+
+## Canonical package layout
+
+- Every npm platform package and GitHub release archive vendors a complete codex-package root per target: `bin/codex` + `bin/codex-code-mode-host`, `codex-path/rg`, `codex-resources/` (`bwrap` on Linux, `zsh/bin/zsh` where the manifest provides it, `codex-command-runner.exe` + `codex-windows-sandbox-setup.exe` on Windows), and `codex-package.json` metadata. This is the layout the app-server daemon requires when seeding its managed install; anything less fails startup with "this CLI has no complete local package" on fresh installs.
+- Package trees are assembled with upstream's `scripts/build_codex_package.py`, so npm staging, release archives, and `codex-cli/scripts/install_native_deps.py` all produce the same layout.
+- `codex-cli/bin/codex.js` executes `vendor/<target>/bin/codex` and prepends `vendor/<target>/codex-path` to `PATH`.
+- Linux release builds compile `--bin bwrap`, strip it, and export `CODEX_BWRAP_SHA256` before building `codex`, so the digest embedded in the CLI matches the shipped `codex-resources/bwrap` bytes.
+- `codex-package.json` records the codext release version (`<base>-<sha>` prerelease), which keeps the seeded daemon release off upstream's latest-channel auto-update path.
+- Unix release archives contain a root `codext` symlink to `bin/codex`; the Windows zip adds a `bin/codext.exe` alias. Either entrypoint resolves the package layout for the daemon; a root-level executable copy would not be recognized.

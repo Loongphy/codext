@@ -76,7 +76,7 @@ const localVendorRoot = path.join(__dirname, "..", "vendor");
 const localBinaryPath = path.join(
   localVendorRoot,
   targetTriple,
-  "codex",
+  "bin",
   codexBinaryName,
 );
 
@@ -111,7 +111,7 @@ if (!vendorRoot) {
 }
 
 const archRoot = path.join(vendorRoot, targetTriple);
-const binaryPath = path.join(archRoot, "codex", codexBinaryName);
+const binaryPath = path.join(archRoot, "bin", codexBinaryName);
 
 function ensureExecutable(filePath) {
   if (process.platform === "win32" || !existsSync(filePath)) {
@@ -168,7 +168,7 @@ function detectPackageManager() {
 }
 
 const additionalDirs = [];
-const pathDir = path.join(archRoot, "path");
+const pathDir = path.join(archRoot, "codex-path");
 if (existsSync(pathDir)) {
   additionalDirs.push(pathDir);
 }

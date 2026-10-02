@@ -15,6 +15,9 @@ concurrency:
   group: ${{ github.workflow }}
   cancel-in-progress: true
 
+env:
+  CODEX_REPO_ROOT: ${{ github.workspace }}
+
 jobs:
   build-unix:
     name: Build - ${{ matrix.runner }} - ${{ matrix.target }}
@@ -175,6 +178,25 @@ jobs:
         with:
           target: ${{ matrix.target }}
 
+      - name: Build bwrap and export digest
+        if: ${{ contains(matrix.target, 'unknown-linux-musl') }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          # The bundled bwrap must be built, stripped, and hashed before the
+          # codex binary so the digest is embedded via CODEX_BWRAP_SHA256 at
+          # compile time and matches the codex-resources/bwrap payload.
+          cargo build --locked --target "${{ matrix.target }}" --release --timings --bin bwrap
+          bwrap_path="target/${{ matrix.target }}/release/bwrap"
+          if [[ ! -f "${bwrap_path}" ]]; then
+            echo "bwrap binary ${bwrap_path} not found" >&2
+            exit 1
+          fi
+          strip --strip-debug --strip-unneeded "${bwrap_path}"
+          digest="$(sha256sum "${bwrap_path}" | awk '{print $1}')"
+          echo "CODEX_BWRAP_SHA256=${digest}" >> "${GITHUB_ENV}"
+          echo "Built bwrap ${bwrap_path} with sha256:${digest}"
+
       - name: Cargo build
         shell: bash
         run: |
@@ -192,6 +214,9 @@ jobs:
           cp "target/${{ matrix.target }}/release/codex" "${staged_dir}/codex"
           cp "target/${{ matrix.target }}/release/codex-code-mode-host" \
             "${staged_dir}/codex-code-mode-host"
+          if [[ "${{ matrix.target }}" == *linux* ]]; then
+            cp "target/${{ matrix.target }}/release/bwrap" "${staged_dir}/bwrap"
+          fi
 
       - name: Archive Linux symbols and strip staged binary
         if: ${{ contains(matrix.target, 'unknown-linux-musl') }}
@@ -212,6 +237,7 @@ jobs:
           path: |
             ${{ runner.temp }}/release-bin/${{ matrix.target }}/codex
             ${{ runner.temp }}/release-bin/${{ matrix.target }}/codex-code-mode-host
+            ${{ runner.temp }}/release-bin/${{ matrix.target }}/bwrap
           if-no-files-found: error
 
       - if: ${{ contains(matrix.target, 'unknown-linux-musl') }}
@@ -344,51 +370,55 @@ jobs:
           out_dir="${GITHUB_WORKSPACE}/dist/release"
           mkdir -p "${out_dir}"
 
-          linux_stage="$(mktemp -d "${RUNNER_TEMP}/release-linux-x64-XXXXXX")"
-          cp "${artifacts_root}/codex-bin-x86_64-unknown-linux-musl/codex" "${linux_stage}/codext"
-          cp "${artifacts_root}/codex-bin-x86_64-unknown-linux-musl/codex-code-mode-host" \
-            "${linux_stage}/codex-code-mode-host"
-          chmod +x "${linux_stage}/codext"
-          chmod +x "${linux_stage}/codex-code-mode-host"
-          tar -C "${linux_stage}" -czf "${out_dir}/codext-linux-x64-${VERSION}.tar.gz" \
-            codext codex-code-mode-host
+          # Each archive ships the canonical codex-package layout produced by
+          # scripts/build_codex_package.py (bin/, codex-path/, codex-resources/,
+          # codex-package.json) so the app-server daemon can seed a managed
+          # install from it. The manifest keeps the codext pre-release version
+          # so the managed daemon does not follow upstream's latest channel.
+          stage_package() {
+            local target="$1" platform="$2"
+            local bin_dir="${artifacts_root}/codex-bin-${target}"
+            local pkg_dir
+            pkg_dir="$(mktemp -d "${RUNNER_TEMP}/codext-pkg-${platform}-XXXXXX")"
+            local args=(
+              --target "${target}"
+              --package-version "${VERSION}"
+              --package-dir "${pkg_dir}"
+              --force
+            )
+            if [[ "${target}" == *windows* ]]; then
+              args+=(
+                --entrypoint-bin "${bin_dir}/codex.exe"
+                --code-mode-host-bin "${bin_dir}/codex-code-mode-host.exe"
+                --codex-command-runner-bin "${bin_dir}/codex-command-runner.exe"
+                --codex-windows-sandbox-setup-bin "${bin_dir}/codex-windows-sandbox-setup.exe"
+              )
+              python3 scripts/build_codex_package.py "${args[@]}"
+              # bin/codext.exe aliases the entrypoint; running any binary inside
+              # bin/ still resolves the package layout for the daemon.
+              cp "${pkg_dir}/bin/codex.exe" "${pkg_dir}/bin/codext.exe"
+              (cd "${pkg_dir}" && zip -q -r "${out_dir}/codext-${platform}-${VERSION}.zip" .)
+            else
+              args+=(
+                --entrypoint-bin "${bin_dir}/codex"
+                --code-mode-host-bin "${bin_dir}/codex-code-mode-host"
+              )
+              if [[ "${target}" == *linux* ]]; then
+                args+=(--bwrap-bin "${bin_dir}/bwrap")
+              fi
+              python3 scripts/build_codex_package.py "${args[@]}"
+              # Root `codext` symlink keeps the fork's command name; it resolves
+              # to bin/codex so the package layout is still detected.
+              ln -s bin/codex "${pkg_dir}/codext"
+              tar -C "${pkg_dir}" -czf "${out_dir}/codext-${platform}-${VERSION}.tar.gz" .
+            fi
+          }
 
-          linux_arm64_stage="$(mktemp -d "${RUNNER_TEMP}/release-linux-arm64-XXXXXX")"
-          cp "${artifacts_root}/codex-bin-aarch64-unknown-linux-musl/codex" "${linux_arm64_stage}/codext"
-          cp "${artifacts_root}/codex-bin-aarch64-unknown-linux-musl/codex-code-mode-host" \
-            "${linux_arm64_stage}/codex-code-mode-host"
-          chmod +x "${linux_arm64_stage}/codext"
-          chmod +x "${linux_arm64_stage}/codex-code-mode-host"
-          tar -C "${linux_arm64_stage}" -czf "${out_dir}/codext-linux-arm64-${VERSION}.tar.gz" \
-            codext codex-code-mode-host
-
-          darwin_x64_stage="$(mktemp -d "${RUNNER_TEMP}/release-darwin-x64-XXXXXX")"
-          cp "${artifacts_root}/codex-bin-x86_64-apple-darwin/codex" "${darwin_x64_stage}/codext"
-          cp "${artifacts_root}/codex-bin-x86_64-apple-darwin/codex-code-mode-host" \
-            "${darwin_x64_stage}/codex-code-mode-host"
-          chmod +x "${darwin_x64_stage}/codext"
-          chmod +x "${darwin_x64_stage}/codex-code-mode-host"
-          tar -C "${darwin_x64_stage}" -czf "${out_dir}/codext-darwin-x64-${VERSION}.tar.gz" \
-            codext codex-code-mode-host
-
-          darwin_arm64_stage="$(mktemp -d "${RUNNER_TEMP}/release-darwin-arm64-XXXXXX")"
-          cp "${artifacts_root}/codex-bin-aarch64-apple-darwin/codex" "${darwin_arm64_stage}/codext"
-          cp "${artifacts_root}/codex-bin-aarch64-apple-darwin/codex-code-mode-host" \
-            "${darwin_arm64_stage}/codex-code-mode-host"
-          chmod +x "${darwin_arm64_stage}/codext"
-          chmod +x "${darwin_arm64_stage}/codex-code-mode-host"
-          tar -C "${darwin_arm64_stage}" -czf "${out_dir}/codext-darwin-arm64-${VERSION}.tar.gz" \
-            codext codex-code-mode-host
-
-          windows_stage="$(mktemp -d "${RUNNER_TEMP}/release-win32-x64-XXXXXX")"
-          cp "${artifacts_root}/codex-bin-x86_64-pc-windows-msvc/codex.exe" "${windows_stage}/codext.exe"
-          cp "${artifacts_root}/codex-bin-x86_64-pc-windows-msvc/codex-code-mode-host.exe" "${windows_stage}/codex-code-mode-host.exe"
-          cp "${artifacts_root}/codex-bin-x86_64-pc-windows-msvc/codex-windows-sandbox-setup.exe" "${windows_stage}/codex-windows-sandbox-setup.exe"
-          cp "${artifacts_root}/codex-bin-x86_64-pc-windows-msvc/codex-command-runner.exe" "${windows_stage}/codex-command-runner.exe"
-          (
-            cd "${windows_stage}"
-            zip -q -r "${out_dir}/codext-win32-x64-${VERSION}.zip" .
-          )
+          stage_package x86_64-unknown-linux-musl linux-x64
+          stage_package aarch64-unknown-linux-musl linux-arm64
+          stage_package x86_64-apple-darwin darwin-x64
+          stage_package aarch64-apple-darwin darwin-arm64
+          stage_package x86_64-pc-windows-msvc win32-x64
 
           symbols_root="${RUNNER_TEMP}/symbols"
           if [[ -d "${symbols_root}" ]]; then
@@ -459,49 +489,51 @@ jobs:
           path: ${{ runner.temp }}/artifacts
 
       - name: Assemble vendor tree
+        env:
+          VERSION: ${{ steps.compute.outputs.release_version }}
         shell: bash
         run: |
           set -euo pipefail
           artifacts_root="${RUNNER_TEMP}/artifacts"
           vendor_root="${RUNNER_TEMP}/npm-root/vendor"
 
-          mkdir -p \
-            "${vendor_root}/x86_64-unknown-linux-musl/codex" \
-            "${vendor_root}/aarch64-unknown-linux-musl/codex" \
-            "${vendor_root}/x86_64-apple-darwin/codex" \
-            "${vendor_root}/aarch64-apple-darwin/codex" \
-            "${vendor_root}/x86_64-pc-windows-msvc/codex"
+          # Each platform package vendors a complete canonical package dir built
+          # by scripts/build_codex_package.py (bin/, codex-path/,
+          # codex-resources/, codex-package.json), which also fetches rg and the
+          # bundled zsh via DotSlash manifests.
+          assemble_vendor() {
+            local target="$1"
+            local bin_dir="${artifacts_root}/codex-bin-${target}"
+            local args=(
+              --target "${target}"
+              --package-version "${VERSION}"
+              --package-dir "${vendor_root}/${target}"
+              --force
+            )
+            if [[ "${target}" == *windows* ]]; then
+              args+=(
+                --entrypoint-bin "${bin_dir}/codex.exe"
+                --code-mode-host-bin "${bin_dir}/codex-code-mode-host.exe"
+                --codex-command-runner-bin "${bin_dir}/codex-command-runner.exe"
+                --codex-windows-sandbox-setup-bin "${bin_dir}/codex-windows-sandbox-setup.exe"
+              )
+            else
+              args+=(
+                --entrypoint-bin "${bin_dir}/codex"
+                --code-mode-host-bin "${bin_dir}/codex-code-mode-host"
+              )
+              if [[ "${target}" == *linux* ]]; then
+                args+=(--bwrap-bin "${bin_dir}/bwrap")
+              fi
+            fi
+            python3 scripts/build_codex_package.py "${args[@]}"
+          }
 
-          cp "${artifacts_root}/codex-bin-x86_64-unknown-linux-musl/codex" \
-            "${vendor_root}/x86_64-unknown-linux-musl/codex/codex"
-          cp "${artifacts_root}/codex-bin-x86_64-unknown-linux-musl/codex-code-mode-host" \
-            "${vendor_root}/x86_64-unknown-linux-musl/codex/codex-code-mode-host"
-          cp "${artifacts_root}/codex-bin-aarch64-unknown-linux-musl/codex" \
-            "${vendor_root}/aarch64-unknown-linux-musl/codex/codex"
-          cp "${artifacts_root}/codex-bin-aarch64-unknown-linux-musl/codex-code-mode-host" \
-            "${vendor_root}/aarch64-unknown-linux-musl/codex/codex-code-mode-host"
-          cp "${artifacts_root}/codex-bin-x86_64-apple-darwin/codex" \
-            "${vendor_root}/x86_64-apple-darwin/codex/codex"
-          cp "${artifacts_root}/codex-bin-x86_64-apple-darwin/codex-code-mode-host" \
-            "${vendor_root}/x86_64-apple-darwin/codex/codex-code-mode-host"
-          cp "${artifacts_root}/codex-bin-aarch64-apple-darwin/codex" \
-            "${vendor_root}/aarch64-apple-darwin/codex/codex"
-          cp "${artifacts_root}/codex-bin-aarch64-apple-darwin/codex-code-mode-host" \
-            "${vendor_root}/aarch64-apple-darwin/codex/codex-code-mode-host"
-
-          cp "${artifacts_root}/codex-bin-x86_64-pc-windows-msvc/codex.exe" \
-            "${vendor_root}/x86_64-pc-windows-msvc/codex/codex.exe"
-          cp "${artifacts_root}/codex-bin-x86_64-pc-windows-msvc/codex-code-mode-host.exe" \
-            "${vendor_root}/x86_64-pc-windows-msvc/codex/codex-code-mode-host.exe"
-          cp "${artifacts_root}/codex-bin-x86_64-pc-windows-msvc/codex-windows-sandbox-setup.exe" \
-            "${vendor_root}/x86_64-pc-windows-msvc/codex/codex-windows-sandbox-setup.exe"
-          cp "${artifacts_root}/codex-bin-x86_64-pc-windows-msvc/codex-command-runner.exe" \
-            "${vendor_root}/x86_64-pc-windows-msvc/codex/codex-command-runner.exe"
-
-      - uses: facebook/install-dotslash@v2
-
-      - name: Install ripgrep payloads
-        run: python3 codex-cli/scripts/install_native_deps.py --component rg "${RUNNER_TEMP}/npm-root"
+          assemble_vendor x86_64-unknown-linux-musl
+          assemble_vendor aarch64-unknown-linux-musl
+          assemble_vendor x86_64-apple-darwin
+          assemble_vendor aarch64-apple-darwin
+          assemble_vendor x86_64-pc-windows-msvc
 
       - name: Stage npm tarballs
         env:

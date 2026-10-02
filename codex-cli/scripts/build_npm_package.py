@@ -15,6 +15,7 @@ REPO_ROOT = CODEX_CLI_ROOT.parent
 RESPONSES_API_PROXY_NPM_ROOT = REPO_ROOT / "codex-rs" / "responses-api-proxy" / "npm"
 CODEX_SDK_ROOT = REPO_ROOT / "sdk" / "typescript"
 CODEX_NPM_NAME = "@loongphy/codext"
+CODEX_PACKAGE_COMPONENT = "codex-package"
 
 # `npm_name` is the local optional-dependency alias consumed by `bin/codex.js`.
 # The underlying package published to npm is always `@loongphy/codext`.
@@ -62,17 +63,11 @@ PACKAGE_EXPANSIONS: dict[str, list[str]] = {
 
 PACKAGE_NATIVE_COMPONENTS: dict[str, list[str]] = {
     "codex": [],
-    "codex-linux-x64": ["codex", "codex-code-mode-host", "rg"],
-    "codex-linux-arm64": ["codex", "codex-code-mode-host", "rg"],
-    "codex-darwin-x64": ["codex", "codex-code-mode-host", "rg"],
-    "codex-darwin-arm64": ["codex", "codex-code-mode-host", "rg"],
-    "codex-win32-x64": [
-        "codex",
-        "codex-code-mode-host",
-        "rg",
-        "codex-windows-sandbox-setup",
-        "codex-command-runner",
-    ],
+    "codex-linux-x64": [CODEX_PACKAGE_COMPONENT],
+    "codex-linux-arm64": [CODEX_PACKAGE_COMPONENT],
+    "codex-darwin-x64": [CODEX_PACKAGE_COMPONENT],
+    "codex-darwin-arm64": [CODEX_PACKAGE_COMPONENT],
+    "codex-win32-x64": [CODEX_PACKAGE_COMPONENT],
     "codex-responses-api-proxy": ["codex-responses-api-proxy"],
     "codex-sdk": [],
 }
@@ -83,15 +78,6 @@ PACKAGE_TARGET_FILTERS: dict[str, str] = {
 }
 
 PACKAGE_CHOICES = tuple(PACKAGE_NATIVE_COMPONENTS)
-
-COMPONENT_DEST_DIR: dict[str, str] = {
-    "codex": "codex",
-    "codex-code-mode-host": "codex",
-    "codex-responses-api-proxy": "codex-responses-api-proxy",
-    "codex-windows-sandbox-setup": "codex",
-    "codex-command-runner": "codex",
-    "rg": "path",
-}
 
 
 def parse_args() -> argparse.Namespace:
@@ -369,7 +355,7 @@ def copy_native_binaries(
     if not vendor_src.exists():
         raise RuntimeError(f"Vendor source directory not found: {vendor_src}")
 
-    components_set = {component for component in components if component in COMPONENT_DEST_DIR}
+    components_set = set(components)
     if not components_set:
         return
 
@@ -387,22 +373,29 @@ def copy_native_binaries(
         if target_filter is not None and target_dir.name not in target_filter:
             continue
 
-        dest_target_dir = vendor_dest / target_dir.name
-        dest_target_dir.mkdir(parents=True, exist_ok=True)
         copied_targets.add(target_dir.name)
 
-        for component in components_set:
-            dest_dir_name = COMPONENT_DEST_DIR.get(component)
-            if dest_dir_name is None:
-                continue
+        dest_target_dir = vendor_dest / target_dir.name
 
-            src_component_dir = target_dir / dest_dir_name
+        # The codex-package component is a complete package directory produced by
+        # scripts/build_codex_package.py (bin/, codex-path/, codex-resources/,
+        # codex-package.json). Copy the entire tree so the app-server daemon can
+        # seed a managed install from it.
+        if CODEX_PACKAGE_COMPONENT in components_set:
+            if dest_target_dir.exists():
+                shutil.rmtree(dest_target_dir)
+            shutil.copytree(target_dir, dest_target_dir)
+        else:
+            dest_target_dir.mkdir(parents=True, exist_ok=True)
+
+        for component in sorted(components_set - {CODEX_PACKAGE_COMPONENT}):
+            src_component_dir = target_dir / component
             if not src_component_dir.exists():
                 raise RuntimeError(
                     f"Missing native component '{component}' in vendor source: {src_component_dir}"
                 )
 
-            dest_component_dir = dest_target_dir / dest_dir_name
+            dest_component_dir = dest_target_dir / component
             if dest_component_dir.exists():
                 shutil.rmtree(dest_component_dir)
             shutil.copytree(src_component_dir, dest_component_dir)

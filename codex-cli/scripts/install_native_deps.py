@@ -20,9 +20,13 @@ from urllib.request import urlopen
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 CODEX_CLI_ROOT = SCRIPT_DIR.parent
+REPO_ROOT = CODEX_CLI_ROOT.parent
 DEFAULT_WORKFLOW_URL = "https://github.com/openai/codex/actions/runs/17952349351"  # rust-v0.40.0
 VENDOR_DIR_NAME = "vendor"
-RG_MANIFEST = CODEX_CLI_ROOT / "bin" / "rg"
+RG_MANIFEST = REPO_ROOT / "scripts" / "codex_package" / "rg"
+ZSH_MANIFEST = REPO_ROOT / "scripts" / "codex_package" / "codex-zsh"
+PACKAGE_METADATA_FILENAME = "codex-package.json"
+PACKAGE_LAYOUT_VERSION = 1
 BINARY_TARGETS = (
     "x86_64-unknown-linux-musl",
     "aarch64-unknown-linux-musl",
@@ -41,16 +45,17 @@ class BinaryComponent:
 
 
 WINDOWS_TARGETS = tuple(target for target in BINARY_TARGETS if "windows" in target)
+LINUX_TARGETS = tuple(target for target in BINARY_TARGETS if "linux" in target)
 
 BINARY_COMPONENTS = {
     "codex": BinaryComponent(
         artifact_prefix="codex",
-        dest_dir="codex",
+        dest_dir="bin",
         binary_basename="codex",
     ),
     "codex-code-mode-host": BinaryComponent(
         artifact_prefix="codex-code-mode-host",
-        dest_dir="codex",
+        dest_dir="bin",
         binary_basename="codex-code-mode-host",
     ),
     "codex-responses-api-proxy": BinaryComponent(
@@ -60,15 +65,21 @@ BINARY_COMPONENTS = {
     ),
     "codex-windows-sandbox-setup": BinaryComponent(
         artifact_prefix="codex-windows-sandbox-setup",
-        dest_dir="codex",
+        dest_dir="codex-resources",
         binary_basename="codex-windows-sandbox-setup",
         targets=WINDOWS_TARGETS,
     ),
     "codex-command-runner": BinaryComponent(
         artifact_prefix="codex-command-runner",
-        dest_dir="codex",
+        dest_dir="codex-resources",
         binary_basename="codex-command-runner",
         targets=WINDOWS_TARGETS,
+    ),
+    "bwrap": BinaryComponent(
+        artifact_prefix="bwrap",
+        dest_dir="codex-resources",
+        binary_basename="bwrap",
+        targets=LINUX_TARGETS,
     ),
 }
 
@@ -135,11 +146,18 @@ def parse_args() -> argparse.Namespace:
         "--component",
         dest="components",
         action="append",
-        choices=tuple(list(BINARY_COMPONENTS) + ["rg"]),
+        choices=tuple(list(BINARY_COMPONENTS) + ["rg", "zsh"]),
         help=(
             "Limit installation to the specified components."
-            " May be repeated. Defaults to codex, codex-windows-sandbox-setup,"
-            " codex-command-runner, and rg."
+            " May be repeated. Defaults to codex, codex-code-mode-host,"
+            " codex-windows-sandbox-setup, codex-command-runner, bwrap, rg, and zsh."
+        ),
+    )
+    parser.add_argument(
+        "--package-version",
+        help=(
+            "Version string recorded in codex-package.json manifests. Defaults to the "
+            "version in the staged package's package.json, or 0.0.0-dev."
         ),
     )
     parser.add_argument(
@@ -166,7 +184,9 @@ def main() -> int:
         "codex-code-mode-host",
         "codex-windows-sandbox-setup",
         "codex-command-runner",
+        "bwrap",
         "rg",
+        "zsh",
     ]
 
     binary_components = [BINARY_COMPONENTS[name] for name in components if name in BINARY_COMPONENTS]
@@ -191,19 +211,40 @@ def main() -> int:
     if "rg" in components:
         with _gha_group("Fetch ripgrep binaries"):
             print("Fetching ripgrep binaries...")
-            fetch_rg(vendor_dir, DEFAULT_RG_TARGETS, manifest_path=RG_MANIFEST)
+            fetch_manifest_binaries(
+                vendor_dir,
+                DEFAULT_RG_TARGETS,
+                manifest_path=RG_MANIFEST,
+                artifact_label="ripgrep",
+                dest_relpath=Path("codex-path"),
+            )
+
+    if "zsh" in components:
+        with _gha_group("Fetch bundled zsh binaries"):
+            print("Fetching bundled zsh binaries...")
+            fetch_manifest_binaries(
+                vendor_dir,
+                DEFAULT_RG_TARGETS,
+                manifest_path=ZSH_MANIFEST,
+                artifact_label="zsh",
+                dest_relpath=Path("codex-resources") / "zsh" / "bin",
+            )
+
+    write_package_manifests(vendor_dir, resolve_package_version(codex_cli_root, args.package_version))
 
     print(f"Installed native dependencies into {vendor_dir}")
     return 0
 
 
-def fetch_rg(
+def fetch_manifest_binaries(
     vendor_dir: Path,
     targets: Sequence[str] | None = None,
     *,
     manifest_path: Path,
+    artifact_label: str,
+    dest_relpath: Path,
 ) -> list[Path]:
-    """Download ripgrep binaries described by the DotSlash manifest."""
+    """Download binaries described by a DotSlash manifest into the package layout."""
 
     if targets is None:
         targets = DEFAULT_RG_TARGETS
@@ -221,31 +262,39 @@ def fetch_rg(
         return []
 
     task_configs: list[tuple[str, str, dict]] = []
+    fetched_targets: list[str] = []
     for target in targets:
         platform_key = RG_TARGET_TO_PLATFORM.get(target)
         if platform_key is None:
-            raise ValueError(f"Unsupported ripgrep target '{target}'.")
+            raise ValueError(f"Unsupported {artifact_label} target '{target}'.")
 
         platform_info = platforms.get(platform_key)
         if platform_info is None:
-            raise RuntimeError(f"Platform '{platform_key}' not found in manifest {manifest_path}.")
+            print(f"  skipping {artifact_label} for {target}: no '{platform_key}' entry in manifest")
+            continue
 
+        fetched_targets.append(target)
         task_configs.append((target, platform_key, platform_info))
+
+    if not task_configs:
+        return []
 
     results: dict[str, Path] = {}
     max_workers = min(len(task_configs), max(1, (os.cpu_count() or 1)))
 
-    print("Installing ripgrep binaries for targets: " + ", ".join(targets))
+    print(f"Installing {artifact_label} binaries for targets: " + ", ".join(fetched_targets))
 
     with ThreadPoolExecutor(max_workers=max_workers) as executor:
         future_map = {
             executor.submit(
-                _fetch_single_rg,
+                _fetch_single_manifest_binary,
                 vendor_dir,
                 target,
                 platform_key,
                 platform_info,
                 manifest_path,
+                artifact_label,
+                dest_relpath,
             ): target
             for target, platform_key, platform_info in task_configs
         }
@@ -256,13 +305,50 @@ def fetch_rg(
                 results[target] = future.result()
             except Exception as exc:
                 _gha_error(
-                    title="ripgrep install failed",
+                    title=f"{artifact_label} install failed",
                     message=f"target={target} error={exc!r}",
                 )
-                raise RuntimeError(f"Failed to install ripgrep for target {target}.") from exc
-            print(f"  installed ripgrep for {target}")
+                raise RuntimeError(
+                    f"Failed to install {artifact_label} for target {target}."
+                ) from exc
+            print(f"  installed {artifact_label} for {target}")
 
-    return [results[target] for target in targets]
+    return [results[target] for target in fetched_targets]
+
+
+def resolve_package_version(codex_cli_root: Path, package_version: str | None) -> str:
+    if package_version:
+        return package_version
+    package_json_path = codex_cli_root / "package.json"
+    if package_json_path.is_file():
+        try:
+            version = json.loads(package_json_path.read_text(encoding="utf-8")).get("version")
+            if isinstance(version, str) and version:
+                return version
+        except (OSError, json.JSONDecodeError):
+            pass
+    return "0.0.0-dev"
+
+
+def write_package_manifests(vendor_dir: Path, package_version: str) -> None:
+    """Write codex-package.json for each staged target so the daemon recognizes the layout."""
+    for target_dir in sorted(vendor_dir.iterdir()):
+        if not target_dir.is_dir() or not (target_dir / "bin").is_dir():
+            continue
+        target = target_dir.name
+        exe_suffix = ".exe" if "windows" in target else ""
+        manifest = {
+            "layoutVersion": PACKAGE_LAYOUT_VERSION,
+            "version": package_version,
+            "target": target,
+            "variant": "codex",
+            "entrypoint": f"bin/codex{exe_suffix}",
+            "resourcesDir": "codex-resources",
+            "pathDir": "codex-path",
+        }
+        manifest_path = target_dir / PACKAGE_METADATA_FILENAME
+        manifest_path.write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
+        print(f"  wrote {manifest_path}")
 
 
 def _download_artifacts(workflow_id: str, dest_dir: Path) -> None:
@@ -358,12 +444,14 @@ def _archive_name_for_target(artifact_prefix: str, target: str) -> str:
     return f"{artifact_prefix}-{target}.zst"
 
 
-def _fetch_single_rg(
+def _fetch_single_manifest_binary(
     vendor_dir: Path,
     target: str,
     platform_key: str,
     platform_info: dict,
     manifest_path: Path,
+    artifact_label: str,
+    dest_relpath: Path,
 ) -> Path:
     providers = platform_info.get("providers", [])
     if not providers:
@@ -375,11 +463,11 @@ def _fetch_single_rg(
     digest = platform_info.get("digest")
     expected_size = platform_info.get("size")
 
-    dest_dir = vendor_dir / target / "path"
+    dest_dir = vendor_dir / target / dest_relpath
     dest_dir.mkdir(parents=True, exist_ok=True)
 
     is_windows = platform_key.startswith("win")
-    binary_name = "rg.exe" if is_windows else "rg"
+    binary_name = f"{artifact_label}.exe" if is_windows else artifact_label
     dest = dest_dir / binary_name
 
     with tempfile.TemporaryDirectory() as tmp_dir_str:
@@ -387,18 +475,18 @@ def _fetch_single_rg(
         archive_filename = os.path.basename(urlparse(url).path)
         download_path = tmp_dir / archive_filename
         print(
-            f"  downloading ripgrep for {target} ({platform_key}) from {url}",
+            f"  downloading {artifact_label} for {target} ({platform_key}) from {url}",
             flush=True,
         )
         try:
             _download_file(url, download_path)
         except Exception as exc:
             _gha_error(
-                title="ripgrep download failed",
+                title=f"{artifact_label} download failed",
                 message=f"target={target} platform={platform_key} url={url} error={exc!r}",
             )
             raise RuntimeError(
-                "Failed to download ripgrep "
+                f"Failed to download {artifact_label} "
                 f"(target={target}, platform={platform_key}, format={archive_format}, "
                 f"expected_size={expected_size!r}, digest={digest!r}, url={url}, dest={download_path})."
             ) from exc
@@ -408,7 +496,7 @@ def _fetch_single_rg(
             extract_archive(download_path, archive_format, archive_member, dest)
         except Exception as exc:
             raise RuntimeError(
-                "Failed to extract ripgrep "
+                f"Failed to extract {artifact_label} "
                 f"(target={target}, platform={platform_key}, format={archive_format}, "
                 f"member={archive_member!r}, url={url}, archive={download_path})."
             ) from exc

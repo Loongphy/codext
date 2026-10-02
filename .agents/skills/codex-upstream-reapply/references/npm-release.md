@@ -5,8 +5,37 @@
 - npm package: `@loongphy/codext`
 - Platform packages: `@loongphy/codext-{linux-x64,linux-arm64,darwin-x64,darwin-arm64,win32-x64}`
 - User command: `codext` (not `codex`)
-- Native binary inside vendor: `codex` / `codex.exe` (unchanged)
+- Native binary inside vendor: `vendor/<target>/bin/codex` / `bin/codex.exe` (canonical codex-package layout)
 - All user-facing text (tooltips, resume hints, README) must say `codext`
+
+## Canonical package layout (required)
+
+Since upstream made the app-server daemon the default and seeded it from a
+self-contained local package, every npm platform package and release archive
+must vendor a complete codex-package root per target:
+
+```text
+vendor/<target>/
+  codex-package.json                 # layoutVersion/target/variant/entrypoint/...
+  bin/codex(.exe)                    # entrypoint
+  bin/codex-code-mode-host(.exe)
+  codex-path/rg(.exe)
+  codex-resources/bwrap              # Linux only; bytes must match CODEX_BWRAP_SHA256
+  codex-resources/zsh/bin/zsh        # bundled zsh (non-Windows, when manifest has the platform)
+  codex-resources/codex-command-runner.exe           # Windows only
+  codex-resources/codex-windows-sandbox-setup.exe    # Windows only
+```
+
+Build these trees with `scripts/build_codex_package.py` (upstream tooling) and
+pass `--package-version` the codext release version (e.g. `0.160.0-<sha>`). The
+pre-release suffix is required: it keeps `prepare_install` from marking the
+managed daemon release as latest-channel stable, so a codext-seeded daemon is
+not auto-replaced by upstream standalone updates.
+
+`codex-cli/bin/codex.js` must execute `vendor/<target>/bin/codex` and prepend
+`vendor/<target>/codex-path` to `PATH`. Any layout that places the entrypoint
+outside `bin/` or omits `codex-package.json` fails daemon seeding with
+"this CLI has no complete local package".
 
 ## Mandatory copy from OLD_BRANCH
 

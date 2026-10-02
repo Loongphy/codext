@@ -46,6 +46,28 @@ Do not hardcode a particular upstream binary in this procedure. Discover binarie
 
 Changes that cannot be proved relevant to the three scopes are not applied. Report them in the final response with the upstream change, its purpose, and why it was not applied.
 
+## Runtime package contract
+
+The workflow diff alone is not sufficient evidence: the app-server daemon validates the *runtime* package layout at install time, and upstream can change that contract without touching the workflow. A fork-private vendor layout that satisfies an old contract can silently break fresh installs (this happened when upstream began requiring `codex-package.json` + `bin/` + `codex-path/` + `codex-resources/`).
+
+So in addition to `git diff U_OLD..U_NEW` on the workflow, diff and review these contract owners between the tags:
+
+```text
+codex-rs/install-context/        # package-layout detection + CodexPackageManifest
+codex-rs/app-server-daemon/      # prepare_install.rs validate_package, update flows
+codex-rs/linux-sandbox/          # bundled bwrap + CODEX_BWRAP_SHA256 expectations
+scripts/codex_package/           # canonical package builder (layout.py, cli.py, cargo.py)
+codex-cli/                       # launcher path resolution + npm staging scripts
+```
+
+Then check every fork-private packaging surface against the new contract:
+
+- `codex-cli/bin/codex.js` must resolve the binary under `vendor/<target>/bin/` and add `vendor/<target>/codex-path` to `PATH`.
+- `vendor/<target>/` must contain `codex-package.json`, `bin/codex`, `bin/codex-code-mode-host`, `codex-path/rg`, plus `codex-resources/bwrap` on Linux and `codex-resources/codex-command-runner.exe` + `codex-resources/codex-windows-sandbox-setup.exe` on Windows.
+- On Linux, the `codex` binary must be built with `CODEX_BWRAP_SHA256` set to the sha256 of the exact `codex-resources/bwrap` file shipped in the package (build, strip, and hash bwrap before compiling `codex`).
+
+Treat package layout as a release acceptance contract, not a naming convention. When upstream adds, renames, or removes required package files or metadata fields, that change is `APPLIED` in scope even when `rust-release.yml` itself did not change.
+
 ## Fork overrides
 
 Read `release-overrides.json` before making the decision. It contains only long-lived codext policy, such as package identity, command name, and intentionally different release triggers.
