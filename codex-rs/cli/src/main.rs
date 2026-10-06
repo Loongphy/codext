@@ -54,6 +54,7 @@ static ALLOCATOR: tikv_jemallocator::Jemalloc = tikv_jemallocator::Jemalloc;
 mod app_cmd;
 mod cloud_config;
 mod daemon_install;
+mod daemon_reload_auth;
 mod daemon_telemetry;
 #[cfg(any(target_os = "macos", target_os = "windows"))]
 mod desktop_app;
@@ -660,6 +661,9 @@ enum AppServerDaemonSubcommand {
 
     /// Stop the local app server daemon.
     Stop,
+
+    /// [codext] Ask the running daemon to reload auth.json from storage.
+    ReloadAuth,
 
     /// Print local CLI and running app-server versions as JSON.
     Version,
@@ -1323,6 +1327,9 @@ async fn cli_main(
                     }
                     AppServerDaemonSubcommand::Stop => {
                         print_app_server_daemon_output(AppServerLifecycleCommand::Stop).await?;
+                    }
+                    AppServerDaemonSubcommand::ReloadAuth => {
+                        daemon_reload_auth::run_daemon_reload_auth().await?;
                     }
                     AppServerDaemonSubcommand::Version => {
                         print_app_server_daemon_output(AppServerLifecycleCommand::Version).await?;
@@ -2314,6 +2321,7 @@ fn app_server_subcommand_name(subcommand: Option<&AppServerSubcommand>) -> &'sta
                 "app-server daemon disable-remote-control"
             }
             AppServerDaemonSubcommand::Stop => "app-server daemon stop",
+            AppServerDaemonSubcommand::ReloadAuth => "app-server daemon reload-auth",
             AppServerDaemonSubcommand::Version => "app-server daemon version",
             AppServerDaemonSubcommand::PidUpdateLoop { .. } => "app-server daemon pid-update-loop",
         },

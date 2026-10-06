@@ -569,6 +569,11 @@ pub struct ReloadAccountResponse {
     pub requires_openai_auth: bool,
     /// Whether this request reloaded a different auth snapshot from storage.
     pub auth_changed: bool,
+    /// Whether the storage reload was skipped because a turn is running
+    /// somewhere on this (possibly shared) app-server. When true, `account`
+    /// and `auth_changed` reflect the previously cached auth, not storage.
+    #[serde(default)]
+    pub auth_reload_skipped: bool,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, JsonSchema, TS)]

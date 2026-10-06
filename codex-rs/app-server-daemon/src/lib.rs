@@ -6,6 +6,8 @@ pub use backend::windows::DetachedLaunchRestricted;
 #[cfg(windows)]
 use backend::windows::try_lock_file;
 mod client;
+pub use client::AuthReloadOutcome;
+pub use client::request_auth_reload;
 mod install_lock;
 mod launch;
 pub use launch::restart_with_features;

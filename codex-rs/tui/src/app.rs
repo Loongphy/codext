@@ -807,6 +807,11 @@ fn active_turn_interrupt_race(error: &TypedRequestError) -> Option<String> {
 
 const AUTH_RELOAD_RETRY_DELAY: Duration = Duration::from_secs(5);
 const AUTH_RELOAD_MAX_ATTEMPTS: u8 = 3;
+/// Upper bound for retries when a shared daemon reports the reload was skipped
+/// because another client's turn is running. If the daemon is still busy after
+/// this many retries the pending switch is still picked up by the
+/// request-boundary auth reload on the next turn start.
+const AUTH_RELOAD_BUSY_MAX_ATTEMPTS: u8 = 24;
 
 /// Refresh-relevant account identity used to detect and describe auth changes.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -882,6 +887,9 @@ impl App {
         app_server: &mut AppServerSession,
         attempt: u8,
     ) {
+        if !self.config.features.enabled(Feature::CodextAuthReload) {
+            return;
+        }
         if self.chat_widget.is_task_running() {
             self.chat_widget.defer_auth_reload_until_idle(attempt);
             return;
@@ -889,6 +897,18 @@ impl App {
         let previous = AuthIdentity::from_chat_widget(&self.chat_widget);
         match app_server.reload_account_from_storage().await {
             Ok(account) => {
+                if account.auth_reload_skipped {
+                    // The shared daemon skipped the reload because a turn is
+                    // running in another client; keep retrying while it stays
+                    // busy instead of dropping the account switch.
+                    if attempt < AUTH_RELOAD_BUSY_MAX_ATTEMPTS {
+                        self.schedule_auth_reload_retry(attempt.saturating_add(1));
+                    } else {
+                        self.chat_widget
+                            .on_auth_reload_completed(/*identity_changed*/ false);
+                    }
+                    return;
+                }
                 let (display, plan_type, has_chatgpt_account, has_codex_backend_auth) =
                     account_state_from_reload_account_response(&account);
                 let next = AuthIdentity::from_parts(&display, plan_type, has_chatgpt_account);

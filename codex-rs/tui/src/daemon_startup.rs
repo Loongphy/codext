@@ -6,11 +6,15 @@
 use super::*;
 use std::collections::BTreeMap;
 
-const SERVER_FEATURES: [Feature; 4] = [
+const SERVER_FEATURES: [Feature; 5] = [
     Feature::ApiKeyModelDiscovery,
     Feature::CodeModeHost,
     Feature::AuthElicitation,
     Feature::McpOAuthRefreshCoordination,
+    // Codext-only capability marker: a daemon that does not report this feature
+    // cannot serve `account/reload`, so auth.json account switches would be
+    // silently ignored. Treat such daemons as incompatible.
+    Feature::CodextAuthReload,
 ];
 
 pub(super) const FAILURE_HINT: &str = "To work without the background server, rerun the same command with --no-daemon (including resume or fork and its arguments).";
@@ -95,7 +99,7 @@ fn allowed_feature(name: &str) -> bool {
         "daemon_auto_start" | "worktrees" | "transcript_v2" | "realtime_conversation" | "standalone_web_search"
         // Shared services and threadless MCP operations need daemon compatibility checks.
         | "api_key_model_discovery" | "code_mode_host" | "auth_elicitation"
-        | "mcp_oauth_refresh_coordination"
+        | "mcp_oauth_refresh_coordination" | "codext_auth_reload"
         // Removed flags still passed by older launch scripts.
         | "remote_models" | "request_rule" | "responses_websockets_v2"
         | "workspace_owner_usage_nudge" | "tool_search_always_defer_mcp_tools"

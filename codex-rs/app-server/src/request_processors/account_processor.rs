@@ -182,6 +182,7 @@ impl AccountRequestProcessor {
         &self,
     ) -> Result<Option<ClientResponsePayload>, JSONRPCErrorError> {
         let mut auth_changed = false;
+        let mut auth_reload_skipped = false;
         {
             let _auth_transition_guard = self.auth_transition_lock.lock().await;
             if *self
@@ -208,6 +209,11 @@ impl AccountRequestProcessor {
                         return Err(internal_error("failed to reload auth from storage"));
                     }
                 }
+            } else {
+                // A turn is running on this (possibly shared) server; tell the
+                // caller the reload was skipped so it does not mistake the
+                // cached snapshot for a no-change reload.
+                auth_reload_skipped = true;
             }
         }
 
@@ -227,6 +233,7 @@ impl AccountRequestProcessor {
                 account: read.account_state.account.map(Account::from),
                 requires_openai_auth: read.account_state.requires_openai_auth,
                 auth_changed,
+                auth_reload_skipped,
             }
             .into(),
         ))

@@ -220,7 +220,11 @@ impl App {
         let startup_started_at = Instant::now();
         let (app_event_tx, mut app_event_rx) = unbounded_channel();
         let app_event_tx = AppEventSender::new(app_event_tx);
-        let auth_watch = Some(AuthWatch::start(config.codex_home.as_path(), app_event_tx.clone()));
+        let auth_watch = if config.features.enabled(Feature::CodextAuthReload) {
+            Some(AuthWatch::start(config.codex_home.as_path(), app_event_tx.clone()))
+        } else {
+            None
+        };
         if let Some(message) = project_config_warning(&config) {
             app_event_tx.send(AppEvent::InsertHistoryCell(Box::new(
                 history_cell::StartupWarningsCell::new(vec![message]),
