@@ -9,6 +9,8 @@ pub use backend::windows::is_elevated;
 #[cfg(windows)]
 use backend::windows::try_lock_file;
 mod client;
+pub use client::AuthReloadOutcome;
+pub use client::request_auth_reload;
 mod diagnostics;
 mod install_lock;
 mod launch;

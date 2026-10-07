@@ -7,6 +7,7 @@
 
 use super::reconnect::ReconnectState;
 use super::*;
+use crate::auth_watch::AuthWatch;
 use crate::session_start::SessionStartAction;
 use crate::session_start::SessionStartConfig;
 use crate::session_start::SessionStartOutcome;
@@ -255,6 +256,11 @@ impl App {
         let startup_started_at = Instant::now();
         let (app_event_tx, mut app_event_rx) = unbounded_channel();
         let app_event_tx = AppEventSender::new(app_event_tx);
+        let auth_watch = if config.features.enabled(Feature::CodextAuthReload) {
+            Some(AuthWatch::start(config.codex_home.as_path(), app_event_tx.clone()))
+        } else {
+            None
+        };
         if let Some(message) = project_config_warning(&config) {
             app_event_tx.send(AppEvent::InsertHistoryCell(Box::new(
                 history_cell::StartupWarningsCell::new(vec![message]),
@@ -818,6 +824,7 @@ See the Codex keymap documentation for supported actions and examples."
             app_event_tx,
             chat_widget,
             workspace_command_runner: Some(workspace_command_runner),
+            _auth_watch: auth_watch,
             config,
             local_settings,
             launch_cwd,
