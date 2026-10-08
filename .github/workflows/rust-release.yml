@@ -411,9 +411,11 @@ jobs:
                 args+=(--bwrap-bin "${bin_dir}/bwrap")
               fi
               python3 scripts/build_codex_package.py "${args[@]}"
-              # Root `codext` symlink keeps the fork's command name; it resolves
-              # to bin/codex so the package layout is still detected.
-              ln -s bin/codex "${pkg_dir}/codext"
+              # `bin/codext` hardlink keeps the fork's command name inside the
+              # canonical bin/ dir, where package-layout detection still sees a
+              # bin/ parent. tar stores it as a link entry that Windows bsdtar
+              # restores without the privileges a symlink would need.
+              ln "${pkg_dir}/bin/codex" "${pkg_dir}/bin/codext"
               tar -C "${pkg_dir}" -czf "${out_dir}/codext-${platform}-${VERSION}.tar.gz" .
             fi
           }

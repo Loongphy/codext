@@ -104,4 +104,4 @@ Implementation must follow the status-header skill .agents/skills/status-header/
 - `codex-cli/bin/codex.js` executes `vendor/<target>/bin/codex` and prepends `vendor/<target>/codex-path` to `PATH`.
 - Linux release builds compile `--bin bwrap`, strip it, and export `CODEX_BWRAP_SHA256` before building `codex`, so the digest embedded in the CLI matches the shipped `codex-resources/bwrap` bytes.
 - `codex-package.json` records the codext release version (`<base>-<sha>` prerelease), which keeps the seeded daemon release off upstream's latest-channel auto-update path.
-- Unix release archives contain a root `codext` symlink to `bin/codex`; the Windows zip adds a `bin/codext.exe` alias. Either entrypoint resolves the package layout for the daemon; a root-level executable copy would not be recognized.
+- Unix release archives ship `bin/codext` as a hardlink to `bin/codex`; the Windows zip adds a `bin/codext.exe` alias. Keeping the alias inside `bin/` preserves package-layout detection, and the hardlink extracts on Windows without the symlink privileges a root symlink would require. A root-level executable copy would not be recognized as a package entrypoint.
