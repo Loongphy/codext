@@ -53,7 +53,7 @@ description: 'Reapply a fork or secondary-development branch onto the latest sta
 - 在 `NEW_BRANCH` 上保留并更新根目录 `AGENTS.md`：明确说明当前正在进行的是一次 upstream reapply 工作，禁止编写/修改测试代码，禁止执行任何 lint / format / auto-fix 命令，并注明本次验收标准以本 skill 的 Acceptance criteria 为准。使用 `start_from_tag.sh` 时，这段临时 guardrails 应由脚本自动刷新；若你没走脚本，则必须手动补上。
 - 对于用户可见的 TUI 功能，如果 `codex-rs/tui` 与 `codex-rs/tui_app_server` 都存在对应的平行实现，则必须同步落地两边；不能只改其中一边就判定该需求已完成，除非 upstream 已明确删除其一，或你能在当前 tag 的代码里给出清晰的“不需要同步”的理由。
 - 如果 `CHANGED.md` 记录的是这类共享 TUI 行为，文案应写成“用户可见行为要求”，并在需要时明确适用于 `tui` 与 `tui_app_server`，避免写成只对应某一个实现细节的说明。
-- 在 `codex-rs` 目录下执行 `cargo build -p codex-cli`，确认能正常构建。
+- 在 `codex-rs` 目录下执行 `CARGO_INCREMENTAL=0 CARGO_PROFILE_DEV_DEBUG=0 cargo build -p codex-cli`，确认能正常构建。必须使用这种最小磁盘占用方式做构建验证；禁止为了验证而开启增量编译缓存或恢复完整 debuginfo（默认 dev 配置会把 `target/` 膨胀到数百 GB，实测本命令全新构建产物约 5G）。
 - 如果本次包含 npm / release / CI 相关改动，必须在 npm/release 工作完成、准备 commit/push 时读取并执行 `references/release-ci-sync.md`。该文档以 upstream old-tag/new-tag diff 为依据，只处理 build artifacts、GitHub Release、npm Release 三类变化；不要在主 skill 中硬编码某个 upstream binary。
 
 ### 0) Confirm upstream and inspect tags first（强制第一步）
@@ -252,11 +252,15 @@ git diff TAG..NEW_BRANCH
 
 ### 8) Build (codex-rs)
 
-在 `codex-rs` 目录下执行：
+在 `codex-rs` 目录下执行（最小磁盘占用方式，必须严格遵守）：
 
 ```bash
-cargo build -p codex-cli
+CARGO_INCREMENTAL=0 CARGO_PROFILE_DEV_DEBUG=0 cargo build -p codex-cli
 ```
+
+- reapply 环境的磁盘有限：默认 dev 配置的增量编译缓存 + 完整 debuginfo 会把 `target/` 膨胀到 200GB+；本命令实测全新构建产物约 5G，可在约 25G 可用空间内完成。
+- 不要用 `cargo check` 代替：check 不执行 codegen 与链接，无法覆盖链接期错误；`build` 只慢约 1 分钟，但保留完整的编译+链接验证信号。
+- 与 npm 发布产物的一致性：本命令验证"同一份源码在 host target 上可编译可链接"，CI release 构建与 npm 打包消费的是同一代码；多平台编译、release profile、vendor 打包契约由 CI 与 `references/release-ci-sync.md` 负责，不属于本地验证范围，任何本地构建配置都无法替代。
 
 ### 9) Release CI sync, then push
 
