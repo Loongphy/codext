@@ -117,6 +117,11 @@ pub enum Feature {
     /// Automatically start the shared local daemon for eligible interactive launches.
     DaemonAutoStart,
 
+    /// Codext-only marker: the app-server implements `account/reload`, so the
+    /// TUI auth.json watcher can drive live account switching. Foreign daemons
+    /// that do not report this feature are treated as incompatible.
+    CodextAuthReload,
+
     // Experimental
     /// Advertise enabled environment-backed tools and their shell parameters before the
     /// executor is ready. Actual execution still requires a usable environment and its policy.
@@ -991,6 +996,12 @@ pub const FEATURES: &[FeatureSpec] = &[
     FeatureSpec {
         id: Feature::DaemonAutoStart,
         key: "daemon_auto_start",
+        stage: Stage::Stable,
+        default_enabled: true,
+    },
+    FeatureSpec {
+        id: Feature::CodextAuthReload,
+        key: "codext_auth_reload",
         stage: Stage::Stable,
         default_enabled: true,
     },
