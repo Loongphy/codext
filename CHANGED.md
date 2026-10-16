@@ -99,7 +99,8 @@ Implementation must follow the status-header skill .agents/skills/status-header/
 
 ## Canonical package layout
 
-- Every npm platform package and GitHub release archive vendors a complete codex-package root per target: `bin/codex` + `bin/codex-code-mode-host`, `codex-path/rg`, `codex-resources/` (`bwrap` on Linux, `zsh/bin/zsh` where the manifest provides it, `codex-command-runner.exe` + `codex-windows-sandbox-setup.exe` on Windows), and `codex-package.json` metadata. This is the layout the app-server daemon requires when seeding its managed install; anything less fails startup with "this CLI has no complete local package" on fresh installs.
+- Every npm platform package and GitHub release archive vendors a complete codex-package root per target: `bin/codex` + `bin/codex-code-mode-host`, `codex-path/rg`, `codex-resources/` (`bwrap` on Linux, `codex-command-runner.exe` + `codex-windows-sandbox-setup.exe` on Windows), and `codex-package.json` metadata. This is the layout the app-server daemon requires when seeding its managed install; anything less fails startup with "this CLI has no complete local package" on fresh installs.
+- Upstream dropped the bundled `zsh` resource from the package contract in `rust-v0.163.0`; Codext follows the new contract and no longer fetches or ships a zsh payload.
 - Package trees are assembled with upstream's `scripts/build_codex_package.py`, so npm staging, release archives, and `codex-cli/scripts/install_native_deps.py` all produce the same layout.
 - `codex-cli/bin/codex.js` executes `vendor/<target>/bin/codex` and prepends `vendor/<target>/codex-path` to `PATH`.
 - Linux release builds compile `--bin bwrap`, strip it, and export `CODEX_BWRAP_SHA256` before building `codex`, so the digest embedded in the CLI matches the shipped `codex-resources/bwrap` bytes.

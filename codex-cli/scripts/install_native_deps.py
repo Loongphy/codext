@@ -24,7 +24,6 @@ REPO_ROOT = CODEX_CLI_ROOT.parent
 DEFAULT_WORKFLOW_URL = "https://github.com/openai/codex/actions/runs/17952349351"  # rust-v0.40.0
 VENDOR_DIR_NAME = "vendor"
 RG_MANIFEST = REPO_ROOT / "scripts" / "codex_package" / "rg"
-ZSH_MANIFEST = REPO_ROOT / "scripts" / "codex_package" / "codex-zsh"
 PACKAGE_METADATA_FILENAME = "codex-package.json"
 PACKAGE_LAYOUT_VERSION = 1
 BINARY_TARGETS = (
@@ -146,11 +145,11 @@ def parse_args() -> argparse.Namespace:
         "--component",
         dest="components",
         action="append",
-        choices=tuple(list(BINARY_COMPONENTS) + ["rg", "zsh"]),
+        choices=tuple(list(BINARY_COMPONENTS) + ["rg"]),
         help=(
             "Limit installation to the specified components."
             " May be repeated. Defaults to codex, codex-code-mode-host,"
-            " codex-windows-sandbox-setup, codex-command-runner, bwrap, rg, and zsh."
+            " codex-windows-sandbox-setup, codex-command-runner, bwrap, and rg."
         ),
     )
     parser.add_argument(
@@ -186,7 +185,6 @@ def main() -> int:
         "codex-command-runner",
         "bwrap",
         "rg",
-        "zsh",
     ]
 
     binary_components = [BINARY_COMPONENTS[name] for name in components if name in BINARY_COMPONENTS]
@@ -217,17 +215,6 @@ def main() -> int:
                 manifest_path=RG_MANIFEST,
                 artifact_label="ripgrep",
                 dest_relpath=Path("codex-path"),
-            )
-
-    if "zsh" in components:
-        with _gha_group("Fetch bundled zsh binaries"):
-            print("Fetching bundled zsh binaries...")
-            fetch_manifest_binaries(
-                vendor_dir,
-                DEFAULT_RG_TARGETS,
-                manifest_path=ZSH_MANIFEST,
-                artifact_label="zsh",
-                dest_relpath=Path("codex-resources") / "zsh" / "bin",
             )
 
     write_package_manifests(vendor_dir, resolve_package_version(codex_cli_root, args.package_version))

@@ -93,7 +93,16 @@ impl LinuxDesktopSession {
             Self {
                 has_display: std::env::var_os("DISPLAY").is_some_and(|value| !value.is_empty())
                     || std::env::var_os("WAYLAND_DISPLAY").is_some_and(|value| !value.is_empty()),
-                is_wsl: crate::clipboard_paste::is_probably_wsl(),
+                is_wsl: {
+                    #[cfg(not(test))]
+                    {
+                        crate::clipboard_paste::is_probably_wsl()
+                    }
+                    #[cfg(test)]
+                    {
+                        false
+                    }
+                },
             }
         }
 

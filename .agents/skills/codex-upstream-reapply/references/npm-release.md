@@ -21,7 +21,6 @@ vendor/<target>/
   bin/codex-code-mode-host(.exe)
   codex-path/rg(.exe)
   codex-resources/bwrap              # Linux only; bytes must match CODEX_BWRAP_SHA256
-  codex-resources/zsh/bin/zsh        # bundled zsh (non-Windows, when manifest has the platform)
   codex-resources/codex-command-runner.exe           # Windows only
   codex-resources/codex-windows-sandbox-setup.exe    # Windows only
 ```

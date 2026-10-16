@@ -343,7 +343,12 @@ jobs:
           upstream_url="https://github.com/openai/codex/releases/tag/${upstream_tag}"
           {
             printf 'For upstream changes, see [%s](%s).\n\n' "${upstream_label}" "${upstream_url}"
-            git log -1 --format=%B "${GITHUB_SHA}"
+            # Cap the commit message the way the upstream publisher does:
+            # keep a 124,999-character budget and reserve the last character
+            # for a trailing newline so GitHub's markdown renderer does not run
+            # the last line into subsequent content.
+            git log -1 --format=%B "${GITHUB_SHA}" |
+              python3 -c 'import sys; print(sys.stdin.read()[:124998])'
             echo
           } > "${notes_path}"
           echo "path=${notes_path}" >> "$GITHUB_OUTPUT"
@@ -509,8 +514,8 @@ jobs:
 
           # Each platform package vendors a complete canonical package dir built
           # by scripts/build_codex_package.py (bin/, codex-path/,
-          # codex-resources/, codex-package.json), which also fetches rg and the
-          # bundled zsh via DotSlash manifests.
+          # codex-resources/, codex-package.json), which also fetches rg via a
+          # DotSlash manifest.
           assemble_vendor() {
             local target="$1"
             local bin_dir="${artifacts_root}/codex-bin-${target}"
