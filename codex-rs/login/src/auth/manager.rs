@@ -1868,6 +1868,16 @@ struct AuthReload {
     changed_for_refresh: bool,
 }
 
+/// Outcome of an unconditional auth reload from storage.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AuthReloadStatus {
+    /// Storage was reloaded; `changed` reports whether the refresh-relevant
+    /// auth snapshot differs from the previously cached one.
+    Reloaded { changed: bool },
+    /// Storage could not be read; the cached auth was left untouched.
+    Failed,
+}
+
 /// Internal cached auth state.
 #[derive(Clone)]
 struct CachedAuth {
@@ -2699,6 +2709,38 @@ impl AuthManager {
         }
     }
 
+    /// Force a reload of auth information from storage.
+    ///
+    /// Unlike [`Self::reload`], this always reads from the on-disk storage path
+    /// (the same loader used by [`Self::load_auth_from_storage`]) and surfaces
+    /// read failures instead of silently keeping the cached auth. The returned
+    /// [`AuthReloadStatus`] reports whether storage could be read and whether the
+    /// refresh-relevant auth snapshot changed.
+    pub async fn reload_with_status(&self) -> AuthReloadStatus {
+        tracing::info!("Reloading auth");
+        loop {
+            let generation = self.auth_change_state_tx.borrow().generation;
+            let new_auth = match self.load_auth_from_storage().await {
+                Ok(new_auth) => new_auth,
+                Err(err) => {
+                    tracing::warn!(
+                        %err,
+                        "Failed to reload auth from storage; keeping current auth state"
+                    );
+                    return AuthReloadStatus::Failed;
+                }
+            };
+            if let Some(publication) = self.publish_reloaded_auth(generation, new_auth) {
+                return AuthReloadStatus::Reloaded {
+                    changed: publication.changed_for_refresh,
+                };
+            }
+            if self.inner.is_poisoned() {
+                return AuthReloadStatus::Failed;
+            }
+        }
+    }
+
     async fn reload_if_account_id_matches(
         &self,
         expected_account_id: Option<&str>,
@@ -2911,6 +2953,23 @@ impl AuthManager {
             self.auth_change_tx.send_modify(|revision| *revision += 1);
         }
         changed
+    }
+
+    /// Read auth straight from on-disk storage, bypassing the active-source loader.
+    async fn load_auth_from_storage(&self) -> std::io::Result<Option<CodexAuth>> {
+        let forced_chatgpt_workspace_id = self.forced_chatgpt_workspace_id();
+        load_auth(
+            &self.codex_home,
+            self.enable_codex_api_key_env,
+            self.auth_credentials_store_mode,
+            /*allowed_login_methods*/ None,
+            forced_chatgpt_workspace_id.as_deref(),
+            self.chatgpt_base_url.as_deref(),
+            self.keyring_backend_kind,
+            self.agent_identity_authapi_base_url.as_deref(),
+            &self.auth_route_config,
+        )
+        .await
     }
 
     pub async fn set_external_auth(

@@ -10,13 +10,13 @@ use codex_install_context::StandalonePlatform;
 pub enum UpdateAction {
     /// Replace the local daemon after restoring the terminal.
     Daemon(DaemonUpdateSource),
-    /// Update via `npm install -g @openai/codex@latest`.
+    /// Update via `npm install -g @loongphy/codext@latest`.
     NpmGlobalLatest,
-    /// Update via `bun install -g @openai/codex@latest`.
+    /// Update via `bun install -g @loongphy/codext@latest`.
     BunGlobalLatest,
-    /// Update via `vp install -g @openai/codex@latest`.
+    /// Update via `vp install -g @loongphy/codext@latest`.
     VitePlusGlobalLatest,
-    /// Update via `pnpm add -g @openai/codex@latest`.
+    /// Update via `pnpm add -g @loongphy/codext@latest`.
     PnpmGlobalLatest,
     /// Update via `brew upgrade codex`.
     BrewUpgrade,
@@ -47,10 +47,10 @@ impl UpdateAction {
     pub fn command_args(self) -> (&'static str, &'static [&'static str]) {
         match self {
             UpdateAction::Daemon(source) => ("codex", source.command_args()),
-            UpdateAction::NpmGlobalLatest => ("npm", &["install", "-g", "@openai/codex"]),
-            UpdateAction::BunGlobalLatest => ("bun", &["install", "-g", "@openai/codex"]),
-            UpdateAction::VitePlusGlobalLatest => ("vp", &["install", "-g", "@openai/codex"]),
-            UpdateAction::PnpmGlobalLatest => ("pnpm", &["add", "-g", "@openai/codex"]),
+            UpdateAction::NpmGlobalLatest => ("npm", &["install", "-g", "@loongphy/codext"]),
+            UpdateAction::BunGlobalLatest => ("bun", &["install", "-g", "@loongphy/codext"]),
+            UpdateAction::VitePlusGlobalLatest => ("vp", &["install", "-g", "@loongphy/codext"]),
+            UpdateAction::PnpmGlobalLatest => ("pnpm", &["add", "-g", "@loongphy/codext"]),
             UpdateAction::BrewUpgrade => ("brew", &["upgrade", "--cask", "codex"]),
             UpdateAction::StandaloneUnix => (
                 "sh",

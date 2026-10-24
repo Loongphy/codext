@@ -80,7 +80,7 @@ jobs:
           sudo apt-get "${apt_retry_args[@]}" update -y
           sudo DEBIAN_FRONTEND=noninteractive apt-get "${apt_retry_args[@]}" install -y --no-install-recommends pkg-config libcap-dev libubsan1
 
-      - uses: dtolnay/rust-toolchain@e081816240890017053eacbb1bdf337761dc5582 # 1.95.0
+      - uses: dtolnay/rust-toolchain@d124f86f28ff42855784ff3319f48ac182c248f8 # 1.99.1
         with:
           targets: ${{ matrix.target }}
 
@@ -266,7 +266,7 @@ jobs:
     steps:
       - uses: actions/checkout@v6
 
-      - uses: dtolnay/rust-toolchain@e081816240890017053eacbb1bdf337761dc5582 # 1.95.0
+      - uses: dtolnay/rust-toolchain@d124f86f28ff42855784ff3319f48ac182c248f8 # 1.99.1
         with:
           targets: ${{ matrix.target }}
 
@@ -593,6 +593,9 @@ jobs:
       - name: Publish to npm
         env:
           VERSION: ${{ steps.compute.outputs.release_version }}
+          NPM_CONFIG_LOGLEVEL: verbose
+          NPM_CONFIG_LOGS_DIR: ${{ runner.temp }}/npm-publish-logs
+          NPM_CONFIG_LOGS_MAX: "100"
         shell: bash
         run: |
           set -euo pipefail
@@ -650,20 +653,38 @@ jobs:
             fi
 
             echo "+ ${publish_cmd[*]}"
-            set +e
-            publish_output="$("${publish_cmd[@]}" 2>&1)"
-            publish_status=$?
-            set -e
+            # A fresh npm process obtains new OIDC credentials on each attempt.
+            for attempt in 1 2 3; do
+              echo "+ ${publish_cmd[*]} (attempt ${attempt}/3)"
+              set +e
+              publish_output="$("${publish_cmd[@]}" 2>&1)"
+              publish_status=$?
+              set -e
 
-            echo "${publish_output}"
-            if [[ ${publish_status} -eq 0 ]]; then
-              continue
-            fi
+              echo "${publish_output}"
+              if [[ ${publish_status} -eq 0 ]]; then
+                break
+              fi
 
-            if grep -qiE "previously published|cannot publish over|version already exists" <<< "${publish_output}"; then
-              echo "Skipping already-published package version for ${filename}"
-              continue
-            fi
+              if grep -qiE "previously published|cannot publish over|version already exists" <<< "${publish_output}"; then
+                echo "Skipping already-published package version for ${filename}"
+                break
+              fi
 
-            exit "${publish_status}"
+              if [[ ${attempt} -eq 3 ]]; then
+                exit "${publish_status}"
+              fi
+              delay=$((attempt * 10))
+              echo "Publishing ${filename} failed; retrying in ${delay} seconds."
+              sleep "${delay}"
+            done
           done
+
+      - name: Retain npm debug logs
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: npm-publish-logs-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/npm-publish-logs/
+          if-no-files-found: ignore
+          retention-days: 7

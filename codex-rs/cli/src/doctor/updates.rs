@@ -33,7 +33,8 @@ use super::network;
 const MAX_VERSION_RESPONSE_BYTES: usize = 1024 * 1024;
 
 const VERSION_FILE_NAME: &str = "version.json";
-const GITHUB_LATEST_RELEASE_URL: &str = "https://api.github.com/repos/openai/codex/releases/latest";
+const GITHUB_LATEST_RELEASE_URL: &str =
+    "https://api.github.com/repos/Loongphy/codext/releases/latest";
 const HOMEBREW_CASK_API_URL: &str = "https://formulae.brew.sh/api/cask/codex.json";
 #[cfg(all(target_os = "macos", target_arch = "x86_64"))]
 const DESKTOP_UPDATE_URL: &str = "https://persistent.oaistatic.com/codex-app-prod/appcast-x64.xml";
@@ -389,10 +390,10 @@ fn push_cached_version_details(details: &mut Vec<String>, version_file: &Path) {
 
 fn update_action_label(context: &InstallContext) -> &'static str {
     match &context.method {
-        InstallMethod::Npm => "npm install -g @openai/codex",
-        InstallMethod::Bun => "bun install -g @openai/codex",
-        InstallMethod::VitePlus => "vp install -g @openai/codex",
-        InstallMethod::Pnpm => "pnpm add -g @openai/codex",
+        InstallMethod::Npm => "npm install -g @loongphy/codext",
+        InstallMethod::Bun => "bun install -g @loongphy/codext",
+        InstallMethod::VitePlus => "vp install -g @loongphy/codext",
+        InstallMethod::Pnpm => "pnpm add -g @loongphy/codext",
         InstallMethod::Brew => "brew upgrade --cask codex",
         InstallMethod::Standalone { .. } => "standalone installer",
         InstallMethod::Other => "manual or unknown",
@@ -424,8 +425,11 @@ async fn fetch_latest_github_release_version(
 
     let info = http_get_json::<ReleaseInfo>(client, GITHUB_LATEST_RELEASE_URL).await?;
     info.tag_name
-        .strip_prefix("rust-v")
-        .map(str::to_string)
+        .strip_prefix("codext-v")
+        .or_else(|| info.tag_name.strip_prefix("rust-v"))
+        // Codext tags carry a `-<sha>` suffix (`codext-v0.159.0-89c2fe4`);
+        // report the base version.
+        .map(|version| version.split('-').next().unwrap_or(version).to_string())
         .ok_or_else(|| format!("failed to parse latest tag {}", info.tag_name))
 }
 
