@@ -154,6 +154,16 @@ pub(super) async fn compatibility_warning(
             Some((name.to_string(), value.as_bool()?))
         })
         .collect();
+    // Codext-only capability marker: a daemon that does not report this feature
+    // cannot serve `account/reload`, so auth.json account switches would be
+    // silently ignored. Treat such daemons as incompatible.
+    if config.features.enabled(Feature::CodextAuthReload) {
+        requested
+            .entry("codext_auth_reload".to_string())
+            .or_insert(true);
+    } else {
+        requested.remove("codext_auth_reload");
+    }
     let mut restart_features = None;
     let check = async {
         // Connect even without overrides so startup can recover from an unreachable daemon.

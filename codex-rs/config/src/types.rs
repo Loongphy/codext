@@ -1009,6 +1009,19 @@ pub struct Tui {
     #[serde(default, rename = "presets")]
     pub quick_dials: BTreeMap<String, QuickDial>,
 
+    /// Optional synthetic user-turn prompt injected after a turn fails with
+    /// `UsageLimitExceeded`.
+    ///
+    /// When unset, Codext uses the built-in default recovery prompt.
+    /// When set to an empty string, Codext disables this automatic recovery turn.
+    #[serde(default)]
+    pub usage_limit_resume_prompt: Option<String>,
+
+    /// Automatically submit `Continue` after a turn fails with `ServerOverloaded`.
+    /// Defaults to `true`.
+    #[serde(default = "default_true")]
+    pub server_overloaded_resume: bool,
+
     /// Startup tooltip availability NUX state persisted by the TUI.
     #[serde(default)]
     pub model_availability_nux: ModelAvailabilityNuxConfig,
