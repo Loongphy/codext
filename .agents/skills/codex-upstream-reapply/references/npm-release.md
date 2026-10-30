@@ -16,14 +16,20 @@ must vendor a complete codex-package root per target:
 
 ```text
 vendor/<target>/
-  codex-package.json                 # layoutVersion/target/variant/entrypoint/...
+  codex-package.json                 # layoutVersion/target/variant/entrypoint/execServer/...
   bin/codex(.exe)                    # entrypoint
   bin/codex-code-mode-host(.exe)
+  bin/codex-exec-server(.exe)        # release archives; npm staging strips this duplicate executor
   codex-path/rg(.exe)
   codex-resources/bwrap              # Linux only; bytes must match CODEX_BWRAP_SHA256
   codex-resources/codex-command-runner.exe           # Windows only
   codex-resources/codex-windows-sandbox-setup.exe    # Windows only
 ```
+
+GitHub release archives keep `bin/codex-exec-server` and the manifest's
+`execServer` entry. npm platform packages remove both, matching upstream npm
+packaging: `codex exec-server` remains available through the CLI, and the
+duplicate standalone binary would only inflate the npm upload.
 
 Build these trees with `scripts/build_codex_package.py` (upstream tooling) and
 pass `--package-version` the codext release version (e.g. `0.160.0-<sha>`). The

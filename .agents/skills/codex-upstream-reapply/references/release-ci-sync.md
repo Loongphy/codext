@@ -63,7 +63,7 @@ codex-cli/                       # launcher path resolution + npm staging script
 Then check every fork-private packaging surface against the new contract:
 
 - `codex-cli/bin/codex.js` must resolve the binary under `vendor/<target>/bin/` and add `vendor/<target>/codex-path` to `PATH`.
-- `vendor/<target>/` must contain `codex-package.json`, `bin/codex`, `bin/codex-code-mode-host`, `codex-path/rg`, plus `codex-resources/bwrap` on Linux and `codex-resources/codex-command-runner.exe` + `codex-resources/codex-windows-sandbox-setup.exe` on Windows.
+- `vendor/<target>/` must contain `codex-package.json`, `bin/codex`, `bin/codex-code-mode-host`, `codex-path/rg`, plus `codex-resources/bwrap` on Linux and `codex-resources/codex-command-runner.exe` + `codex-resources/codex-windows-sandbox-setup.exe` on Windows. When upstream's package builder also ships a standalone executor, release archives keep `bin/codex-exec-server` and the manifest's `execServer` entry; npm staging removes that duplicate executable and metadata field, matching upstream npm packaging.
 - On Linux, the `codex` binary must be built with `CODEX_BWRAP_SHA256` set to the sha256 of the exact `codex-resources/bwrap` file shipped in the package (build, strip, and hash bwrap before compiling `codex`).
 
 Treat package layout as a release acceptance contract, not a naming convention. When upstream adds, renames, or removes required package files or metadata fields, that change is `APPLIED` in scope even when `rust-release.yml` itself did not change.

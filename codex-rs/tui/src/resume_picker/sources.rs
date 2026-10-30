@@ -79,7 +79,8 @@ pub(super) fn spawn(
                                 PickerLoadRequest::Preview { backend_id, .. }
                                 | PickerLoadRequest::Transcript { backend_id, .. }
                                 | PickerLoadRequest::Archive { backend_id, .. }
-                                | PickerLoadRequest::Unarchive { backend_id, .. } => *backend_id,
+                                | PickerLoadRequest::Unarchive { backend_id, .. }
+                                | PickerLoadRequest::Rename { backend_id, .. } => *backend_id,
                                 PickerLoadRequest::Page(_) => unreachable!(),
                             };
                             if let Some(worker) = workers.get(&backend) {
@@ -91,6 +92,7 @@ pub(super) fn spawn(
                                     PickerLoadRequest::Transcript { thread_id, .. } => BackgroundEvent::Transcript { thread_id, transcript: Err(error) },
                                     PickerLoadRequest::Archive { thread_id, .. } => BackgroundEvent::Archive { thread_id, result: Err(error) },
                                     PickerLoadRequest::Unarchive { thread_id, .. } => BackgroundEvent::Unarchive { thread_id, result: Err(error) },
+                                    PickerLoadRequest::Rename { thread_id, name, .. } => BackgroundEvent::Rename { thread_id, name, result: Err(error) },
                                     PickerLoadRequest::Page(_) => unreachable!(),
                                 };
                                 let _ = output.send(event);

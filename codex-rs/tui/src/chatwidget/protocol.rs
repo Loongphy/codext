@@ -87,6 +87,11 @@ impl ChatWidget {
                 self.on_thread_settings_updated(notification);
             }
             ServerNotification::TurnStarted(notification) => {
+                if let Some(pending) = self.pending_local_user_message_echo.as_mut()
+                    && pending.turn_id.is_none()
+                {
+                    pending.turn_id = Some(notification.turn.id.clone());
+                }
                 if self
                     .bottom_pane
                     .dismiss_view_by_id(safety_recourse::VIEW_ID)
@@ -440,7 +445,13 @@ impl ChatWidget {
         // User-message dedupe only suppresses the app-server echo of a prompt
         // this TUI already rendered locally. Once that turn ends, another
         // client can submit the same text and it still needs its own user cell.
-        self.last_rendered_user_message_display = None;
+        if self
+            .pending_local_user_message_echo
+            .as_ref()
+            .is_some_and(|pending| pending.turn_id.as_deref() == Some(&notification.turn.id))
+        {
+            self.pending_local_user_message_echo = None;
+        }
         let mut question_drafts = None;
         let live_turn =
             replay_kind.is_none() && self.last_turn_id() == Some(notification.turn.id.as_str());

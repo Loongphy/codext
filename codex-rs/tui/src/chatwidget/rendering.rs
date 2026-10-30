@@ -257,7 +257,10 @@ impl ChatWidget {
             options.textarea_right_reserve = right_reserve;
             options.separate_status_line = options.command_popup_placement
                 != crate::bottom_pane::CommandPopupPlacement::AboveComposer;
-            let bottom_pane = self.bottom_pane.backdrop_with_options(options);
+            let bottom_pane = self.bottom_pane.backdrop_with_options_and_header(
+                options,
+                super::status_header::renderable(self),
+            );
             let above_composer = if self.quick_dial_menu {
                 RenderableItem::Owned(Box::new(self.quick_dial_hud()))
             } else if let Some(pending) = &self.safety_recourse

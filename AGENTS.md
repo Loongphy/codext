@@ -26,12 +26,6 @@
 
 
 
-
-
-
-
-
-
 In the codex-rs folder where the rust code lives:
 
 - Crate names are prefixed with `codex-`. For example, the `core` folder's crate is named `codex-core`
