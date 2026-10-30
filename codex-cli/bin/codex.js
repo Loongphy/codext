@@ -1,10 +1,9 @@
 #!/usr/bin/env node
-// Unified entry point for the Codex CLI.
+// Unified entry point for the Codext CLI.
 
 import { spawn } from "node:child_process";
-import { existsSync, readFileSync, realpathSync } from "fs";
+import { chmodSync, existsSync, statSync } from "fs";
 import { createRequire } from "node:module";
-import { constants } from "node:os";
 import path from "path";
 import { fileURLToPath } from "url";
 
@@ -12,15 +11,13 @@ import { fileURLToPath } from "url";
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const require = createRequire(import.meta.url);
-const codexPackageRoot = realpathSync(path.join(__dirname, ".."));
 
 const PLATFORM_PACKAGE_BY_TARGET = {
-  "x86_64-unknown-linux-musl": "@openai/codex-linux-x64",
-  "aarch64-unknown-linux-musl": "@openai/codex-linux-arm64",
-  "x86_64-apple-darwin": "@openai/codex-darwin-x64",
-  "aarch64-apple-darwin": "@openai/codex-darwin-arm64",
-  "x86_64-pc-windows-msvc": "@openai/codex-win32-x64",
-  "aarch64-pc-windows-msvc": "@openai/codex-win32-arm64",
+  "x86_64-unknown-linux-musl": "@loongphy/codext-linux-x64",
+  "aarch64-unknown-linux-musl": "@loongphy/codext-linux-arm64",
+  "x86_64-apple-darwin": "@loongphy/codext-darwin-x64",
+  "aarch64-apple-darwin": "@loongphy/codext-darwin-arm64",
+  "x86_64-pc-windows-msvc": "@loongphy/codext-win32-x64",
 };
 
 const { platform, arch } = process;
@@ -57,9 +54,6 @@ switch (platform) {
       case "x64":
         targetTriple = "x86_64-pc-windows-msvc";
         break;
-      case "arm64":
-        targetTriple = "aarch64-pc-windows-msvc";
-        break;
       default:
         break;
     }
@@ -77,123 +71,82 @@ if (!platformPackage) {
   throw new Error(`Unsupported target triple: ${targetTriple}`);
 }
 
-function findCodexExecutable() {
-  let vendorRoot;
-  try {
-    const packageJsonPath = require.resolve(`${platformPackage}/package.json`);
-    vendorRoot = path.join(path.dirname(packageJsonPath), "vendor");
-  } catch {
-    vendorRoot = path.join(__dirname, "..", "vendor");
-  }
+const codexBinaryName = process.platform === "win32" ? "codex.exe" : "codex";
+const localVendorRoot = path.join(__dirname, "..", "vendor");
+const localBinaryPath = path.join(
+  localVendorRoot,
+  targetTriple,
+  "bin",
+  codexBinaryName,
+);
 
-  const codexExecutable = path.join(
-    vendorRoot,
-    targetTriple,
-    "bin",
-    process.platform === "win32" ? "codex.exe" : "codex",
-  );
-  if (existsSync(codexExecutable)) {
-    return codexExecutable;
+let vendorRoot;
+try {
+  const packageJsonPath = require.resolve(`${platformPackage}/package.json`);
+  vendorRoot = path.join(path.dirname(packageJsonPath), "vendor");
+} catch {
+  if (existsSync(localBinaryPath)) {
+    vendorRoot = localVendorRoot;
+  } else {
+    const packageManager = detectPackageManager();
+    const updateCommand =
+      packageManager === "bun"
+        ? "bun install -g @loongphy/codext@latest"
+        : "npm install -g @loongphy/codext@latest";
+    throw new Error(
+      `Missing optional dependency ${platformPackage}. Reinstall Codext: ${updateCommand}`,
+    );
   }
+}
 
+if (!vendorRoot) {
   const packageManager = detectPackageManager();
   const updateCommand =
     packageManager === "bun"
-      ? "bun install -g @openai/codex@latest"
-      : packageManager === "pnpm"
-        ? "pnpm add -g @openai/codex@latest"
-        : packageManager === "vite-plus"
-          ? "vp install -g @openai/codex@latest"
-          : "npm install -g @openai/codex@latest";
+      ? "bun install -g @loongphy/codext@latest"
+      : "npm install -g @loongphy/codext@latest";
   throw new Error(
-    `Missing optional dependency ${platformPackage}. Reinstall Codex: ${updateCommand}`,
+    `Missing optional dependency ${platformPackage}. Reinstall Codext: ${updateCommand}`,
   );
 }
 
-const binaryPath = findCodexExecutable();
+const archRoot = path.join(vendorRoot, targetTriple);
+const binaryPath = path.join(archRoot, "bin", codexBinaryName);
 
-function isPnpmOwnedCodexInstall(nodeModulesDir) {
-  if (!existsSync(path.join(nodeModulesDir, ".modules.yaml"))) {
-    return false;
+function ensureExecutable(filePath) {
+  if (process.platform === "win32" || !existsSync(filePath)) {
+    return;
   }
 
-  try {
-    return (
-      realpathSync(path.join(nodeModulesDir, "@openai", "codex")) ===
-      codexPackageRoot
-    );
-  } catch {
-    return false;
+  const currentMode = statSync(filePath).mode;
+  if ((currentMode & 0o111) !== 0) {
+    return;
   }
+
+  chmodSync(filePath, currentMode | 0o111);
 }
 
-function isVitePlusOwnedCodexInstall(packagesDir) {
-  if (path.basename(packagesDir) !== "packages") {
-    return false;
-  }
+// Use an asynchronous spawn instead of spawnSync so that Node is able to
+// respond to signals (e.g. Ctrl-C / SIGINT) while the native binary is
+// executing. This allows us to forward those signals to the child process
+// and guarantees that when either the child terminates or the parent
+// receives a fatal signal, both processes exit in a predictable manner.
 
-  try {
-    const metadata = JSON.parse(
-      readFileSync(path.join(packagesDir, "@openai", "codex.json"), "utf8"),
-    );
-    if (metadata.name !== "@openai/codex") {
-      return false;
-    }
-
-    // Vite+ records the active global installation in packages/@openai/codex.json.
-    // Older installs have no ID or append a #-prefixed ID to the package name;
-    // newer installs put the ID in a subdirectory of the package prefix.
-    const installId = metadata.installId || "";
-    const installDir = installId.startsWith("#")
-      ? path.join(packagesDir, `@openai/codex${installId}`)
-      : path.join(packagesDir, "@openai/codex", installId);
-    for (const nodeModulesDir of [
-      path.join(installDir, "lib", "node_modules"),
-      path.join(installDir, "node_modules"),
-    ]) {
-      const packageRoot = path.join(nodeModulesDir, "@openai", "codex");
-      if (
-        existsSync(packageRoot) &&
-        realpathSync(packageRoot) === codexPackageRoot
-      ) {
-        return true;
-      }
-    }
-  } catch {
-    // Missing or unreadable ownership metadata must not prevent Codex starting.
-  }
-  return false;
+function getUpdatedPath(newDirs) {
+  const pathSep = process.platform === "win32" ? ";" : ":";
+  const existingPath = process.env.PATH || "";
+  const updatedPath = [
+    ...newDirs,
+    ...existingPath.split(pathSep).filter(Boolean),
+  ].join(pathSep);
+  return updatedPath;
 }
 
 /**
- * Use heuristics to detect the package manager that was used to install Codex
+ * Use heuristics to detect the package manager that was used to install Codext
  * in order to give the user a hint about how to update it.
  */
 function detectPackageManager() {
-  // Package-manager ownership metadata can be several parents above the package.
-  // Search ancestors of both the canonical package root and lexical entrypoint
-  // because the package manager may link either path.
-  const entrypointDir = path.dirname(path.resolve(process.argv[1]));
-  for (const startDir of new Set([codexPackageRoot, entrypointDir])) {
-    const filesystemRoot = path.parse(startDir).root;
-    for (
-      let currentDir = startDir;
-      currentDir !== filesystemRoot;
-      currentDir = path.dirname(currentDir)
-    ) {
-      if (isVitePlusOwnedCodexInstall(currentDir)) {
-        return "vite-plus";
-      }
-      if (isPnpmOwnedCodexInstall(path.join(currentDir, "node_modules"))) {
-        return "pnpm";
-      }
-    }
-
-    if (isPnpmOwnedCodexInstall(path.join(filesystemRoot, "node_modules"))) {
-      return "pnpm";
-    }
-  }
-
   const userAgent = process.env.npm_config_user_agent || "";
   if (/\bbun\//.test(userAgent)) {
     return "bun";
@@ -214,36 +167,22 @@ function detectPackageManager() {
   return userAgent ? "npm" : null;
 }
 
-const packageManager = detectPackageManager();
+const additionalDirs = [];
+const pathDir = path.join(archRoot, "codex-path");
+if (existsSync(pathDir)) {
+  additionalDirs.push(pathDir);
+}
+const updatedPath = getUpdatedPath(additionalDirs);
+
+const env = { ...process.env, PATH: updatedPath };
 const packageManagerEnvVar =
-  packageManager === "bun"
+  detectPackageManager() === "bun"
     ? "CODEX_MANAGED_BY_BUN"
-    : packageManager === "pnpm"
-      ? "CODEX_MANAGED_BY_PNPM"
-      : packageManager === "vite-plus"
-        ? "CODEX_MANAGED_BY_VITE_PLUS"
-        : "CODEX_MANAGED_BY_NPM";
-const env = {
-  ...process.env,
-  CODEX_MANAGED_PACKAGE_ROOT: codexPackageRoot,
-};
-delete env.CODEX_MANAGED_BY_NPM;
-delete env.CODEX_MANAGED_BY_BUN;
-delete env.CODEX_MANAGED_BY_PNPM;
-delete env.CODEX_MANAGED_BY_VITE_PLUS;
+    : "CODEX_MANAGED_BY_NPM";
 env[packageManagerEnvVar] = "1";
 
-// Replace Node so the native binary receives signals and exits directly.
-// Node exposes execve on Windows too, but calling it there is unsupported.
-if (process.platform !== "win32" && typeof process.execve === "function") {
-  // Node ignores SIGXFSZ, and ignored signals survive execve. Installing a
-  // handler lets execve restore the default disposition in the native binary.
-  process.on("SIGXFSZ", () => {});
-  process.execve(binaryPath, [binaryPath, ...process.argv.slice(2)], env);
-}
+ensureExecutable(binaryPath);
 
-// Older Node versions and Windows need a child process. Spawn asynchronously
-// so Node can forward signals while the native binary is executing.
 const child = spawn(binaryPath, process.argv.slice(2), {
   stdio: "inherit",
   env,
@@ -293,9 +232,8 @@ const childResult = await new Promise((resolve) => {
 });
 
 if (childResult.type === "signal") {
-  // Preserve a failure exit code even if Node ignores the re-emitted signal.
-  process.exitCode = 128 + constants.signals[childResult.signal];
-  process.removeAllListeners(childResult.signal);
+  // Re-emit the same signal so that the parent terminates with the expected
+  // semantics (this also sets the correct exit code of 128 + n).
   process.kill(process.pid, childResult.signal);
 } else {
   process.exit(childResult.exitCode);
