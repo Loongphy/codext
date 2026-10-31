@@ -270,6 +270,10 @@ jobs:
     steps:
       - uses: actions/checkout@v6
 
+      - name: Enable Git long paths
+        shell: pwsh
+        run: git config --global core.longpaths true
+
       - uses: dtolnay/rust-toolchain@e081816240890017053eacbb1bdf337761dc5582 # 1.95.0
         with:
           targets: ${{ matrix.target }}
