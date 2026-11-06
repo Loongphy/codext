@@ -15,6 +15,13 @@ Choose one of these two ways:
 npm i -g @loongphy/codext
 ```
 
+  After each npm update, refresh the managed app-server daemon so attached
+  sessions run the same version:
+
+```shell
+codext app-server daemon update --from-cli
+```
+
 * Build from source:
 
 ```shell
