@@ -47,6 +47,8 @@ description: 'Reapply a fork or secondary-development branch onto the latest sta
 
 - 禁止运行 `cargo test`（不需要写/跑测试）。
 - 不得生成测试代码或快照文件：确保本次变更里没有新增/修改测试代码或 `*.snap`/`*.snap.new`。
+- 判定以最终 diff 为准：测试文件（`tests.rs`、`test_support.rs`、`*_tests.rs`、`tests/` 目录等）必须保持零改动。
+- 该约束会反向约束实现形态：如果某个方案会迫使修改测试文件（例如给在测试代码中以字面量构造的 struct 新增字段、改动夹具依赖的接口形状），应改用不触碰测试的实现方式，而不是去编辑测试。
 - 禁止运行任何会检查/编译测试目标，或可能因此倒逼你修改测试代码的命令；包括但不限于 `cargo clippy --tests`、`cargo clippy --fix --tests`、`just fix`、`cargo insta ...`。
 - 除非用户明确要求，不运行 `cargo fmt` / `just fmt` / `cargo clippy` / `cargo clippy --fix` / `just fix` 这类格式化、lint、自动修正命令；本 skill 默认只做必要的代码实现与 build 验证。
 - 如果仓库通用 AGENTS/README/开发规范要求在大改后额外跑 `fmt` / `clippy` / `fix` / `test`，在本 skill 下默认跳过这些步骤，优先遵守“不改测试代码、只做 build 验证”的约束；如有例外必须先得到用户明确许可。
