@@ -682,7 +682,7 @@ pub(crate) struct App {
     /// modal's terminal input has not settled.
     startup_pending_protected_request: bool,
     /// Invalidates in-flight full rate-limit reads when a newer rolling hard stop arrives.
-    account_email_request_id: Option<uuid::Uuid>,
+    account_email_request_id: Option<account_status::AccountIdentityRefresh>,
     rate_limit_hard_stop_generation: u64,
     rate_limit_refresh_state: rate_limit_refresh::RateLimitRefreshState,
     pending_mcp_login_start: Option<PendingMcpLoginStart>,
@@ -862,6 +862,12 @@ impl AuthIdentity {
         )
     }
 
+    /// `true` while the displayed ChatGPT identity is still waiting for the
+    /// email/workspace read that follows an `AccountUpdated` notification.
+    fn is_unresolved(&self) -> bool {
+        self.has_chatgpt_account && self.email.is_none()
+    }
+
     fn from_parts(
         status_account_display: &Option<StatusAccountDisplay>,
         plan_type: Option<PlanType>,
@@ -897,6 +903,39 @@ fn auth_change_message(previous: &AuthIdentity, next: &AuthIdentity) -> String {
         previous.display_label(),
         next.display_label()
     )
+}
+
+impl App {
+    /// Runs the account-switch side effects once the displayed identity is
+    /// resolved enough to compare.
+    ///
+    /// Returns `true` when the resolved identity differs from `previous`: the
+    /// transcript gets a warning cell and account-scoped rate-limit state is
+    /// reset. An unresolved ChatGPT identity (email still loading) or an
+    /// identical identity returns `false` so callers can retry once the
+    /// `account/read` follow-up lands.
+    fn finish_auth_identity_transition(&mut self, previous: &AuthIdentity) -> bool {
+        let next = AuthIdentity::from_chat_widget(&self.chat_widget);
+        if next.is_unresolved() || next == *previous {
+            return false;
+        }
+        // A second signal for a switch this TUI already surfaced — for example
+        // the file watcher's `account/reload` response arriving after an
+        // `AccountUpdated` already ran — must not repeat the side effects.
+        if matches!(
+            self.account_email_request_id.as_ref(),
+            Some(account_status::AccountIdentityRefresh::Fired(last)) if *last == next
+        ) {
+            return false;
+        }
+        self.chat_widget.handle_auth_identity_changed();
+        self.chat_widget.add_to_history(history_cell::new_warning_event(
+            auth_change_message(previous, &next),
+        ));
+        self.account_email_request_id =
+            Some(account_status::AccountIdentityRefresh::Fired(next));
+        true
+    }
 }
 
 impl App {
@@ -943,21 +982,28 @@ impl App {
                 }
                 let (display, plan_type, has_chatgpt_account, has_codex_backend_auth) =
                     account_state_from_reload_account_response(&account);
-                let next = AuthIdentity::from_parts(&display, plan_type, has_chatgpt_account);
-                let changed = account.auth_changed;
                 self.chat_widget.update_account_state(
                     display,
                     plan_type,
                     has_chatgpt_account,
                     has_codex_backend_auth,
                 );
-                if changed {
-                    self.chat_widget.handle_auth_identity_changed();
-                    self.chat_widget.add_to_history(history_cell::new_warning_event(
-                        auth_change_message(&previous, &next),
-                    ));
+                // auth_changed only reports whether this call performed the
+                // reload; another client (for example codex-auth's
+                // reload-auth) may have reloaded already, in which case the
+                // daemon reports auth_changed=false while this TUI's displayed
+                // identity is stale. Comparing identities covers both orders
+                // and stays idempotent with the `AccountUpdated` path.
+                let identity_changed = self.finish_auth_identity_transition(&previous);
+                self.chat_widget.on_auth_reload_completed(identity_changed);
+                if !identity_changed
+                    && AuthIdentity::from_chat_widget(&self.chat_widget).is_unresolved()
+                {
+                    // The reload response carries no email either; arm the
+                    // follow-up read so the transition can still complete if
+                    // the `AccountUpdated` notification was already consumed.
+                    self.refresh_account_email(app_server, Some(previous));
                 }
-                self.chat_widget.on_auth_reload_completed(changed);
                 if has_chatgpt_account {
                     let reset_hint_request_id =
                         self.chat_widget.start_rate_limit_reset_startup_check();

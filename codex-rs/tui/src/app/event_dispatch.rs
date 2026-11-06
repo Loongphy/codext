@@ -1337,9 +1337,27 @@ impl App {
                     });
             }
             AppEvent::AccountEmailLoaded { request_id, email, workspace } => {
-                if self.account_email_request_id == Some(request_id) {
-                    self.account_email_request_id = None;
+                let is_current = matches!(
+                    self.account_email_request_id.as_ref(),
+                    Some(account_status::AccountIdentityRefresh::Pending {
+                        request_id: pending_id,
+                        ..
+                    }) if *pending_id == request_id
+                );
+                if is_current {
+                    let previous = match self.account_email_request_id.take() {
+                        Some(account_status::AccountIdentityRefresh::Pending {
+                            previous_identity,
+                            ..
+                        }) => previous_identity,
+                        _ => None,
+                    };
                     self.chat_widget.on_account_email_loaded(email, workspace);
+                    if let Some(previous) = previous
+                        && self.finish_auth_identity_transition(&previous)
+                    {
+                        self.chat_widget.on_auth_reload_completed(true);
+                    }
                 }
             }
             AppEvent::SecuritySetupLoaded { request_id, identity, notice } => {

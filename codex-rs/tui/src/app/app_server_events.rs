@@ -2,6 +2,7 @@
 //! Hidden structured threads reject requests instead of entering interactive routing.
 
 use super::App;
+use super::AuthIdentity;
 use super::ThreadBufferedEvent;
 use super::app_server_event_targets::ServerNotificationThreadTarget;
 use super::app_server_event_targets::server_notification_thread_target;
@@ -418,6 +419,12 @@ impl App {
                 let has_chatgpt_account = notification
                     .auth_mode
                     .is_some_and(AuthMode::has_chatgpt_account);
+                // Capture the identity this TUI last displayed before it is
+                // overwritten; the reload may have been performed for another
+                // client's request (the daemon then reports auth_changed=false
+                // to this TUI), so identity comparison is the only reliable
+                // signal that the account actually switched here.
+                let previous_identity = AuthIdentity::from_chat_widget(&self.chat_widget);
                 self.account_email_request_id = None;
                 self.chat_widget.update_account_state(
                     account_display,
@@ -426,13 +433,15 @@ impl App {
                     has_codex_backend_auth,
                 );
                 if self.chat_widget.has_chatgpt_account() {
-                    self.refresh_account_email(app_server_client);
+                    self.refresh_account_email(app_server_client, Some(previous_identity));
                     crate::security_setup::prefetch(
                         &self.config,
                         app_server_client,
                         self.app_event_tx.clone(),
                         self.chat_widget.security_setup_request_id,
                     );
+                } else if self.finish_auth_identity_transition(&previous_identity) {
+                    self.chat_widget.on_auth_reload_completed(true);
                 }
                 return;
             }
