@@ -58,7 +58,7 @@ pub(crate) async fn validate_resume_target(
         let parent_hint = thread
             .parent_thread_id
             .map_or_else(String::new, |parent_id| {
-                format!("\nResume its parent session instead: codex resume {parent_id}")
+                format!("\nResume its parent session instead: codext resume {parent_id}")
             });
         color_eyre::eyre::bail!("Cannot resume a Guardian review thread.{parent_hint}");
     }

@@ -2,6 +2,7 @@
 //! Results carry a request ID so account changes and reconnects reject obsolete identities.
 
 use super::App;
+use super::AuthIdentity;
 use crate::app_event::AppEvent;
 use crate::app_server_session::AppServerSession;
 use codex_app_server_protocol::Account;
@@ -12,10 +13,36 @@ use codex_app_server_protocol::RequestId;
 use std::time::Duration;
 use uuid::Uuid;
 
+/// State of the identity resolution that follows an account change signal.
+///
+/// `Pending` is an in-flight `account/read` issued after an `AccountUpdated`
+/// notification: the notification carries no email, so the refreshed identity
+/// only becomes comparable once this read lands; `previous_identity` is the
+/// snapshot taken before the display was updated, letting the response detect
+/// a real account switch (and not a same-account token refresh) at that point.
+/// `Fired` remembers the identity switch side effects already ran for, so a
+/// second signal for the same change — the auth file watcher's `account/reload`
+/// response or a reconnect bootstrap — does not emit a duplicate warning or
+/// release parked work twice.
+pub(super) enum AccountIdentityRefresh {
+    Pending {
+        request_id: Uuid,
+        previous_identity: Option<AuthIdentity>,
+    },
+    Fired(AuthIdentity),
+}
+
 impl App {
-    pub(super) fn refresh_account_email(&mut self, app_server: &AppServerSession) {
+    pub(super) fn refresh_account_email(
+        &mut self,
+        app_server: &AppServerSession,
+        previous_identity: Option<AuthIdentity>,
+    ) {
         let request_id = Uuid::new_v4();
-        self.account_email_request_id = Some(request_id);
+        self.account_email_request_id = Some(AccountIdentityRefresh::Pending {
+            request_id,
+            previous_identity,
+        });
         let request_handle = app_server.request_handle();
         let app_event_tx = self.app_event_tx.clone();
         tokio::spawn(async move {

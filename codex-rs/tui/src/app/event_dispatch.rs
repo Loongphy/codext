@@ -1409,9 +1409,27 @@ impl App {
                     });
             }
             AppEvent::AccountEmailLoaded { request_id, email, workspace } => {
-                if self.account_email_request_id == Some(request_id) {
-                    self.account_email_request_id = None;
+                let is_current = matches!(
+                    self.account_email_request_id.as_ref(),
+                    Some(account_status::AccountIdentityRefresh::Pending {
+                        request_id: pending_id,
+                        ..
+                    }) if *pending_id == request_id
+                );
+                if is_current {
+                    let previous = match self.account_email_request_id.take() {
+                        Some(account_status::AccountIdentityRefresh::Pending {
+                            previous_identity,
+                            ..
+                        }) => previous_identity,
+                        _ => None,
+                    };
                     self.chat_widget.on_account_email_loaded(email, workspace);
+                    if let Some(previous) = previous
+                        && self.finish_auth_identity_transition(&previous)
+                    {
+                        self.chat_widget.on_auth_reload_completed(true);
+                    }
                 }
             }
             AppEvent::SecuritySetupLoaded { request_id, identity, notice } => {
@@ -1839,6 +1857,20 @@ impl App {
             AppEvent::FileSearchResult { query, matches } => {
                 self.chat_widget.apply_file_search_result(query, matches);
             }
+            AppEvent::ServerOverloadedRetry {
+                attempt,
+                generation,
+            } => {
+                self.chat_widget
+                    .on_server_overloaded_retry(attempt, generation);
+            }
+            AppEvent::AuthFileChanged => {
+                self.handle_auth_file_changed(app_server, /*attempt*/ 1)
+                    .await;
+            }
+            AppEvent::AuthFileChangedRetry { attempt } => {
+                self.handle_auth_file_changed(app_server, attempt).await;
+            }
             AppEvent::TaskSearchResult {
                 thread_id,
                 query,
@@ -1947,6 +1979,7 @@ impl App {
                             for snapshot in snapshots {
                                 self.chat_widget.on_rate_limit_snapshot(Some(snapshot));
                             }
+                            tui.frame_requester().schedule_frame();
                         }
                         RateLimitRefreshOrigin::StartupPrefetch {
                             reset_hint_request_id,
@@ -3467,6 +3500,10 @@ impl App {
                 {
                     tui.frame_requester().schedule_frame();
                 }
+            }
+            AppEvent::StatusHeaderGitStatusUpdated { cwd, summary } => {
+                self.chat_widget.set_status_header_git_status(cwd, summary);
+                tui.frame_requester().schedule_frame();
             }
             AppEvent::StatusLineSetupCancelled => {
                 self.chat_widget.cancel_status_line_setup();

@@ -25,6 +25,83 @@ use tokio_tungstenite::tungstenite::Message;
 pub(crate) const CONTROL_SOCKET_RESPONSE_TIMEOUT: Duration = Duration::from_secs(2);
 const CLIENT_NAME: &str = "codex_app_server_daemon";
 const INITIALIZE_REQUEST_ID: RequestId = RequestId::Integer(1);
+const ACCOUNT_RELOAD_REQUEST_ID: RequestId = RequestId::Integer(2);
+const JSONRPC_METHOD_NOT_FOUND: i64 = -32601;
+const AUTH_RELOAD_TIMEOUT: Duration = Duration::from_secs(15);
+
+/// Outcome of an `account/reload` request sent to a running app-server daemon.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum AuthReloadOutcome {
+    /// The daemon reloaded auth storage; `changed` says whether the auth
+    /// snapshot actually changed.
+    Reloaded { changed: bool },
+    /// The daemon skipped the reload because a turn is running on a client
+    /// connected to it.
+    SkippedBusy,
+    /// The running daemon does not implement `account/reload` (for example a
+    /// stock upstream Codex daemon, which lacks this Codext-only RPC).
+    Unsupported,
+}
+
+/// Ask the app-server daemon listening on `socket_path` to reload auth from
+/// storage. External account switchers (codex-auth) call this after replacing
+/// `CODEX_HOME/auth.json` so a long-lived daemon picks up the new account.
+pub async fn request_auth_reload(socket_path: &Path) -> Result<AuthReloadOutcome> {
+    timeout(AUTH_RELOAD_TIMEOUT, request_auth_reload_inner(socket_path))
+        .await
+        .with_context(|| {
+            format!(
+                "timed out reloading auth on app-server control socket {}",
+                socket_path.display()
+            )
+        })?
+}
+
+async fn request_auth_reload_inner(socket_path: &Path) -> Result<AuthReloadOutcome> {
+    let mut websocket = connect(socket_path).await?;
+    initialize(&mut websocket, /*experimental_api*/ true).await?;
+    let initialized = JSONRPCMessage::Notification(JSONRPCNotification {
+        method: "initialized".to_string(),
+        params: None,
+    });
+    send_message(&mut websocket, &initialized)
+        .await
+        .context("failed to send initialized notification")?;
+    let request = JSONRPCMessage::Request(JSONRPCRequest {
+        id: ACCOUNT_RELOAD_REQUEST_ID,
+        method: "account/reload".to_string(),
+        params: None,
+        trace: None,
+    });
+    send_message(&mut websocket, &request)
+        .await
+        .context("failed to send account/reload request")?;
+    let outcome = loop {
+        match read_message(&mut websocket).await? {
+            JSONRPCMessage::Response(response) if response.id == ACCOUNT_RELOAD_REQUEST_ID => {
+                let parsed: codex_app_server_protocol::ReloadAccountResponse =
+                    serde_json::from_value(response.result)
+                        .context("failed to parse account/reload response")?;
+                break if parsed.auth_reload_skipped {
+                    AuthReloadOutcome::SkippedBusy
+                } else {
+                    AuthReloadOutcome::Reloaded {
+                        changed: parsed.auth_changed,
+                    }
+                };
+            }
+            JSONRPCMessage::Error(error) if error.id == ACCOUNT_RELOAD_REQUEST_ID => {
+                if error.error.code == JSONRPC_METHOD_NOT_FOUND {
+                    break AuthReloadOutcome::Unsupported;
+                }
+                return Err(anyhow!("account/reload failed: {}", error.error.message));
+            }
+            _ => {}
+        }
+    };
+    websocket.close(None).await.ok();
+    Ok(outcome)
+}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct ProbeInfo {

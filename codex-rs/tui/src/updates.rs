@@ -6,7 +6,7 @@ use crate::npm_registry::NpmPackageInfo;
 use crate::update_action;
 use crate::update_action::UpdateAction;
 use crate::update_versions::extract_version_from_latest_tag;
-use crate::update_versions::is_newer;
+use crate::update_versions::is_newer_release;
 use crate::update_versions::is_source_build_version;
 use crate::updates_cache::VersionInfo;
 use crate::updates_cache::read_version_info;
@@ -49,7 +49,7 @@ pub fn get_upgrade_version(config: &Config) -> Option<String> {
     }
 
     info.and_then(|info| {
-        if is_newer(&info.latest_version, CODEX_CLI_VERSION).unwrap_or(false) {
+        if is_newer_release(&info.latest_version, CODEX_CLI_VERSION).unwrap_or(false) {
             Some(info.latest_version)
         } else {
             None
@@ -59,7 +59,8 @@ pub fn get_upgrade_version(config: &Config) -> Option<String> {
 
 // We use the latest version from the cask if installation is via homebrew - homebrew does not immediately pick up the latest release and can lag behind.
 const HOMEBREW_CASK_API_URL: &str = "https://formulae.brew.sh/api/cask/codex.json";
-const LATEST_RELEASE_URL: &str = "https://api.github.com/repos/openai/codex/releases/latest";
+const LATEST_RELEASE_URL: &str =
+    "https://api.github.com/repos/Loongphy/codext/releases/latest";
 
 #[derive(Deserialize, Debug, Clone)]
 struct ReleaseInfo {
