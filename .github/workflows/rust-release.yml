@@ -129,6 +129,7 @@ jobs:
         if: ${{ contains(matrix.target, 'unknown-linux-musl') }}
         env:
           TARGET: ${{ matrix.target }}
+          CODEX_MUSL_RELEASE_LINK_FLAGS: "1"
         shell: bash
         run: bash "${GITHUB_WORKSPACE}/.github/scripts/install-musl-build-tools.sh"
 

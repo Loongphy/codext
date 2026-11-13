@@ -83,6 +83,7 @@ fn validate_response_item_image_urls(items: &[ResponseItem]) -> Result<(), JSONR
 
 #[derive(Clone)]
 pub(crate) struct TurnRequestProcessor {
+    auth_manager: Arc<AuthManager>,
     thread_manager: Arc<ThreadManager>,
     outgoing: Arc<OutgoingMessageSender>,
     analytics_events_client: AnalyticsEventsClient,
@@ -91,6 +92,9 @@ pub(crate) struct TurnRequestProcessor {
     pending_thread_unloads: PendingThreadUnloads,
     thread_state_manager: ThreadStateManager,
     thread_watch_manager: ThreadWatchManager,
+    /// Serializes auth reloads against turn starts so an in-flight `turn/start`
+    /// never observes a half-applied auth transition.
+    auth_transition_lock: Arc<Mutex<()>>,
     skills_watcher: Arc<SkillsWatcher>,
     turn_cost_worker: Option<crate::turn_cost_worker::TurnCostWorkerHandle>,
 }
@@ -141,6 +145,7 @@ struct ThreadSettingsBuildParams {
 impl TurnRequestProcessor {
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn new(
+        auth_manager: Arc<AuthManager>,
         thread_manager: Arc<ThreadManager>,
         outgoing: Arc<OutgoingMessageSender>,
         analytics_events_client: AnalyticsEventsClient,
@@ -149,10 +154,12 @@ impl TurnRequestProcessor {
         pending_thread_unloads: PendingThreadUnloads,
         thread_state_manager: ThreadStateManager,
         thread_watch_manager: ThreadWatchManager,
+        auth_transition_lock: Arc<Mutex<()>>,
         skills_watcher: Arc<SkillsWatcher>,
         turn_cost_worker: Option<crate::turn_cost_worker::TurnCostWorkerHandle>,
     ) -> Self {
         Self {
+            auth_manager,
             thread_manager,
             outgoing,
             analytics_events_client,
@@ -161,6 +168,7 @@ impl TurnRequestProcessor {
             pending_thread_unloads,
             thread_state_manager,
             thread_watch_manager,
+            auth_transition_lock,
             skills_watcher,
             turn_cost_worker,
         }
@@ -579,6 +587,7 @@ impl TurnRequestProcessor {
         app_server_client_name: Option<String>,
         app_server_client_version: Option<String>,
     ) -> Result<TurnStartResponse, JSONRPCErrorError> {
+        let _auth_transition_guard = self.auth_transition_lock.lock().await;
         let (thread_id, thread) =
             self.load_thread(&params.thread_id)
                 .await
@@ -587,6 +596,16 @@ impl TurnRequestProcessor {
                 })?;
         self.ensure_direct_input_allowed(&request_id, thread.as_ref())
             .await?;
+        reload_auth_from_storage_if_idle(
+            &self.auth_manager,
+            &self.thread_manager,
+            &self.config_manager,
+            &self.config,
+            &self.outgoing,
+            &self.thread_watch_manager,
+            "turn/start",
+        )
+        .await;
         self.config_manager
             .check_thread_model_provider(thread.config().await.as_ref())
             .await
@@ -768,6 +787,9 @@ impl TurnRequestProcessor {
                 return Err(error);
             }
         };
+        self.thread_watch_manager
+            .note_turn_started(&thread_id.to_string())
+            .await;
 
         if turn_has_input && started {
             let config_snapshot = thread.config_snapshot().await;
