@@ -55,7 +55,7 @@ description: 'Reapply a fork or secondary-development branch onto the latest sta
 - 对于用户可见的 TUI 功能，如果 `codex-rs/tui` 与 `codex-rs/tui_app_server` 都存在对应的平行实现，则必须同步落地两边；不能只改其中一边就判定该需求已完成，除非 upstream 已明确删除其一，或你能在当前 tag 的代码里给出清晰的“不需要同步”的理由。
 - 如果 `CHANGED.md` 记录的是这类共享 TUI 行为，文案应写成“用户可见行为要求”，并在需要时明确适用于 `tui` 与 `tui_app_server`，避免写成只对应某一个实现细节的说明。
 - 在 `codex-rs` 目录下执行 `CARGO_INCREMENTAL=0 CARGO_PROFILE_DEV_DEBUG=0 cargo build -p codex-cli`，确认能正常构建。必须使用这种最小磁盘占用方式做构建验证；禁止为验证开启增量编译缓存或恢复完整 debuginfo。
-- push 前必须完成步骤 9 的本地 npm smoke validation（打包形态启动 + tmux 进入 TUI + status header 渲染正确）；push 后必须按步骤 10 确认 CI 状态。
+- push 前必须完成步骤 9 的本地 npm smoke validation（打包形态启动 + tmux 进入 TUI + status header 渲染正确）；push 后必须按步骤 10 确认 CI 状态；CI 全绿后按步骤 11 从 registry.npmjs.org 安装正式发布包并重跑同样的 TUI 确认。
 - 如果本次包含 npm / release / CI 相关改动，必须在 npm/release 工作完成、准备 commit/push 时读取并执行 `references/release-ci-sync.md`。该文档以 upstream old-tag/new-tag diff 为依据，只处理 build artifacts、GitHub Release、npm Release 三类变化；不要在主 skill 中硬编码某个 upstream binary。
 
 ### 0) Confirm upstream and inspect tags first（强制第一步）
@@ -303,6 +303,16 @@ push 之前做一次本地 npm 包 smoke test，确认 reapply 出的 CLI 能以
 - 后续每次更新后，也都要把同一提交同步推送到这两个分支。
 - 推送后必须确认 CI 状态：`gh run list --repo <fork> --branch <branch>` 确认 release workflow 已触发，并跟进到能下结论的状态。区分真实构建失败与基础设施问题（job 长时间未分配 runner、`The job was not acquired by Runner` 这类容量/排队失败属于基础设施问题，可在报告中说明并视情况 `gh run rerun --failed`）。不确认 CI 结果之前，不要把整个 reapply 汇报为"完成"。
 - CI 的失败修复不属于 reapply 本体；发现真实失败时向用户报告失败 job/日志摘要与初步判断，由用户决定是否让你继续修。
+
+### 11) Post-CI registry install validation（CI 通过后安装正式发布包再确认）
+
+CI（含 `publish-npm` job）全绿之后，从官方 registry 安装本次发布的版本，并按步骤 9 的标准再走一遍确认：
+
+1. 确认版本已发布：`npm view @loongphy/codext versions --registry=https://registry.npmjs.org` 中应出现 `TAG` 对应版本（例如 `0.169.0`）。`publish-npm` 绿但 registry 里看不到版本时，先查 publish job 日志而不是直接安装。
+2. 安装：`npm install -g @loongphy/codext@<version> --registry=https://registry.npmjs.org`。
+3. 验证入口直接指向 npm 全局 prefix 里的包：`$(npm prefix -g)/bin/codext --version` 或 `node $(npm root -g)/@loongphy/codext/bin/codex.js --version`。PATH 上的 `codext` 若被其他 shim 抢占，按步骤 9 的说明处理，不要拿 shim 的输出当验证结果。
+4. 按步骤 9 第 3–5 条在 tmux 里重跑 TUI 确认（进 composer + status header segments），这次用的是正式发布产物，不允许再有"stub/占位"成分；若 code-mode-host 等二进制在正式包里缺损失效，属于 CI/打包问题，如实报告。
+5. 只有这一步通过后，才在最终回复中把 reapply 汇报为"完成并验证"；如用户未要求等待 CI，可将其作为待办项报告而不是阻塞当前回复。
 
 ## How changes are computed from OLD_BRANCH
 
