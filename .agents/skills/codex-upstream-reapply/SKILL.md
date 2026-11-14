@@ -55,6 +55,7 @@ description: 'Reapply a fork or secondary-development branch onto the latest sta
 - 对于用户可见的 TUI 功能，如果 `codex-rs/tui` 与 `codex-rs/tui_app_server` 都存在对应的平行实现，则必须同步落地两边；不能只改其中一边就判定该需求已完成，除非 upstream 已明确删除其一，或你能在当前 tag 的代码里给出清晰的“不需要同步”的理由。
 - 如果 `CHANGED.md` 记录的是这类共享 TUI 行为，文案应写成“用户可见行为要求”，并在需要时明确适用于 `tui` 与 `tui_app_server`，避免写成只对应某一个实现细节的说明。
 - 在 `codex-rs` 目录下执行 `CARGO_INCREMENTAL=0 CARGO_PROFILE_DEV_DEBUG=0 cargo build -p codex-cli`，确认能正常构建。必须使用这种最小磁盘占用方式做构建验证；禁止为验证开启增量编译缓存或恢复完整 debuginfo。
+- push 前必须完成步骤 9 的本地 npm smoke validation（打包形态启动 + tmux 进入 TUI + status header 渲染正确）；push 后必须按步骤 10 确认 CI 状态。
 - 如果本次包含 npm / release / CI 相关改动，必须在 npm/release 工作完成、准备 commit/push 时读取并执行 `references/release-ci-sync.md`。该文档以 upstream old-tag/new-tag diff 为依据，只处理 build artifacts、GitHub Release、npm Release 三类变化；不要在主 skill 中硬编码某个 upstream binary。
 
 ### 0) Confirm upstream and inspect tags first（强制第一步）
@@ -262,7 +263,35 @@ CARGO_INCREMENTAL=0 CARGO_PROFILE_DEV_DEBUG=0 cargo build -p codex-cli
 - 不要用 `cargo check` 代替：check 不执行 codegen 与链接，无法覆盖链接期错误。
 - 与 npm 发布产物的一致性：本命令验证"同一份源码在 host target 上可编译可链接"，CI release 构建与 npm 打包消费的是同一代码；多平台编译、release profile、vendor 打包契约由 CI 与 `references/release-ci-sync.md` 负责，不属于本地验证范围。
 
-### 9) Release CI sync, then push
+### 9) Local npm smoke validation（push 前的本地验证）
+
+push 之前做一次本地 npm 包 smoke test，确认 reapply 出的 CLI 能以打包形态启动。验收范围刻意保持轻量：**能正常进入 TUI + status header 按 `status-header` skill 渲染**，不需要真的提交消息或触发模型请求。
+
+1. 组装 vendor 目录（canonical layout，目录名按 `codex-cli/bin/codex.js` 的 target 映射，如 linux x64 → `x86_64-unknown-linux-musl`）：
+   - `bin/codex`：步骤 8 的 debug 构建产物即可；
+   - `codex-resources/bwrap`（Linux）：`cargo build` 出 `bwrap` 产物；
+   - `codex-path/rg`：直接用系统 `rg`；
+   - `bin/codex-code-mode-host`：本地通常无法构建（`rusty_v8` 需下载预编译产物），放一个可执行 stub 即可，但必须在最终回复中声明它是 stub；
+   - `bin/codext`：复制/链接 `bin/codex`；
+   - `codex-package.json`：`layoutVersion`/`version`/`target`/`entrypoint`/`resourcesDir`/`pathDir`，字段对齐 `install_native_deps.py` 写出的格式。
+2. 把 `codex-cli/` 拷贝到临时目录、放入 vendor，直接跑 `node <dir>/bin/codex.js --version`（`codex.js` 优先解析 `__dirname/../vendor`），确认版本与 `TAG` 一致。
+   - 不要用 `npm install -g` + `which codext` 来判断装没装好：PATH 上的命令名可能被无关 shim（如版本管理器垫片）抢占，输出不代表刚装的包；直接 `node <pkg>/bin/codex.js` 才是可靠的验证路径。
+3. tmux 里起 TUI（stdout 必须是 TTY，命令里不要接 `| tee` 之类管道）：
+   ```bash
+   tmux new-session -d -s codext-smoke -x 200 -y 50 'cd <repo> && node <dir>/bin/codex.js'
+   sleep 8
+   tmux capture-pane -t codext-smoke -p | tail -40
+   ```
+4. 验收点（看 `capture-pane` 输出）：
+   - 正常进入 composer 界面（placeholder/footer 渲染、无 crash、未直接退出）；
+   - status header 出现在 composer 上方，segment 与 `status-header` skill 一致：model/reasoning、cwd、git branch、rate limits、account identity（最后一位、无图标、`email(Plan)` 或 `API key` 格式）；未登录/无限额数据时允许对应 segment 缺失，但不得错位。
+5. 结束后 `tmux kill-session` 清理。
+6. 环境限制要如实写进最终回复，不要假装验证过：
+   - tmux `send-keys` 在键盘增强协议（kitty flags）不可用时无法区分 `Ctrl+Shift+C` 与 `Ctrl+C`，不要用 send-keys 验证组合快捷键；
+   - debug 二进制是 host target（如 `-gnu`），与 vendor 目录名（`-musl`）不同；只有 `app-server daemon update --from-cli` 这类校验 `codex-package.json` `target` 的命令才需要临时改 manifest，改完要说明；
+   - 本地 smoke test 不替代 CI 的多平台 release 构建；用了 stub `codex-code-mode-host` 时，结论只能是"CLI 主路径可启动"。
+
+### 10) Release CI sync, push, and CI confirmation
 
 完成 reapply 和 npm/release 工作后、准备提交和 push 时：
 
@@ -272,7 +301,8 @@ CARGO_INCREMENTAL=0 CARGO_PROFILE_DEV_DEBUG=0 cargo build -p codex-cli
 - 推送当前 reapply 分支到 `origin`。
 - 同一提交强制推送到 `origin/main`。
 - 后续每次更新后，也都要把同一提交同步推送到这两个分支。
-- GitHub Actions 监控和失败修复与本 skill 分离；只有用户明确要求读取或修复 CI 时才执行后续 CI 诊断。
+- 推送后必须确认 CI 状态：`gh run list --repo <fork> --branch <branch>` 确认 release workflow 已触发，并跟进到能下结论的状态。区分真实构建失败与基础设施问题（job 长时间未分配 runner、`The job was not acquired by Runner` 这类容量/排队失败属于基础设施问题，可在报告中说明并视情况 `gh run rerun --failed`）。不确认 CI 结果之前，不要把整个 reapply 汇报为"完成"。
+- CI 的失败修复不属于 reapply 本体；发现真实失败时向用户报告失败 job/日志摘要与初步判断，由用户决定是否让你继续修。
 
 ## How changes are computed from OLD_BRANCH
 
