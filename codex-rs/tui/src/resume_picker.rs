@@ -78,6 +78,7 @@ mod archive;
 mod catalog;
 mod layout;
 mod page_loading;
+mod rename;
 mod sources;
 
 #[cfg(test)]
@@ -223,6 +224,11 @@ enum PickerLoadRequest {
     Unarchive {
         backend_id: crate::backend_id::BackendId,
         thread_id: ThreadId,
+    },
+    Rename {
+        backend_id: crate::backend_id::BackendId,
+        thread_id: ThreadId,
+        name: String,
     },
 }
 
@@ -384,6 +390,11 @@ enum BackgroundEvent {
     Unarchive {
         thread_id: ThreadId,
         result: std::io::Result<SessionTarget>,
+    },
+    Rename {
+        thread_id: ThreadId,
+        name: String,
+        result: std::io::Result<()>,
     },
 }
 
@@ -1054,6 +1065,21 @@ fn spawn_app_server_source(backend: AppServerPickerBackend) -> sources::Source {
                         result,
                     });
                 }
+                PickerLoadRequest::Rename {
+                    backend_id: _,
+                    thread_id,
+                    name,
+                } => {
+                    let result = app_server
+                        .thread_set_name(thread_id, name.clone())
+                        .await
+                        .map_err(std::io::Error::other);
+                    let _ = bg_tx.send(BackgroundEvent::Rename {
+                        thread_id,
+                        name,
+                        result,
+                    });
+                }
                 PickerLoadRequest::Unarchive { thread_id, .. } => {
                     let result = archive_request_handle
                         .request_typed::<ThreadUnarchiveResponse>(ClientRequest::ThreadUnarchive {
@@ -1162,6 +1188,7 @@ struct PickerState {
     sort_key: ThreadSortKey,
     inline_error: Option<String>,
     archive_state: archive::ArchiveState,
+    rename_state: rename::RenameState,
     expanded_thread_id: Option<(BackendId, ThreadId)>,
     transcript_previews: HashMap<(BackendId, ThreadId), TranscriptPreviewState>,
     transcript_cells: HashMap<(BackendId, ThreadId), SessionTranscriptState>,
@@ -1376,6 +1403,7 @@ impl PickerState {
             sort_key: ThreadSortKey::UpdatedAt,
             inline_error: None,
             archive_state: archive::ArchiveState::default(),
+            rename_state: rename::RenameState::Idle,
             expanded_thread_id: None,
             transcript_previews: HashMap::new(),
             transcript_cells: HashMap::new(),
@@ -1589,6 +1617,9 @@ impl PickerState {
         if self.is_transcript_loading() {
             return Ok(self.handle_transcript_loading_key(key));
         }
+        if !matches!(self.rename_state, rename::RenameState::Idle) {
+            return Ok(self.handle_rename_key(key));
+        }
         if !self.keymap.list.page_down.is_pressed(key) {
             self.pending_page_down_target = None;
         }
@@ -1766,6 +1797,11 @@ impl PickerState {
             {
                 self.request_archive_for_selected_session();
             }
+            _ if self.rename_shortcut_available()
+                && crate::key_hint::ctrl(KeyCode::Char('r')).is_press(key) =>
+            {
+                self.begin_rename_selected();
+            }
             KeyEvent {
                 code: KeyCode::Char(c),
                 modifiers,
@@ -1786,6 +1822,9 @@ impl PickerState {
 
     fn handle_paste(&mut self, pasted: String) {
         if self.is_transcript_loading() {
+            return;
+        }
+        if self.handle_rename_paste(&pasted) {
             return;
         }
         let Some(pasted) = normalize_pasted_search_query(&pasted) else {
@@ -1996,6 +2035,13 @@ impl PickerState {
             }
             BackgroundEvent::Unarchive { thread_id, result } => {
                 return Ok(self.handle_unarchive_result(thread_id, result));
+            }
+            BackgroundEvent::Rename {
+                thread_id,
+                name,
+                result,
+            } => {
+                self.handle_rename_result(thread_id, name, result);
             }
         }
         Ok(None)
@@ -2640,6 +2686,21 @@ fn search_line(state: &PickerState, width: u16) -> Line<'_> {
     if let Some(error) = state.inline_error.as_deref() {
         return Line::from(truncate_text(error, usize::from(width)).red());
     }
+    match &state.rename_state {
+        rename::RenameState::Editing { draft, .. } => {
+            return Line::from(vec![
+                "Rename: ".set_style(secondary_text_style()),
+                truncate_text(draft, usize::from(width).saturating_sub(8)).into(),
+            ]);
+        }
+        rename::RenameState::Saving { name, .. } => {
+            return Line::from(
+                truncate_text(&format!("Renaming to {name}…"), usize::from(width))
+                    .set_style(secondary_text_style()),
+            );
+        }
+        rename::RenameState::Idle => {}
+    }
     if state.query.is_empty() {
         "Type to search".set_style(secondary_text_style()).into()
     } else {
@@ -2985,6 +3046,14 @@ fn footer_hint_lines(state: &PickerState, width: u16) -> Vec<Line<'static>> {
             key: crate::key_hint::ctrl(KeyCode::Char('a')).display_label(),
             wide_label: String::from("archive"),
             compact_label: String::from("archive"),
+            priority: 2,
+        });
+    }
+    if !state.filtered_rows.is_empty() && state.rename_shortcut_available() {
+        first_row_hints.push(PickerFooterHint {
+            key: crate::key_hint::ctrl(KeyCode::Char('r')).display_label(),
+            wide_label: String::from("rename"),
+            compact_label: String::from("rename"),
             priority: 2,
         });
     }

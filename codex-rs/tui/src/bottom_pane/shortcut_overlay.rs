@@ -67,6 +67,7 @@ fn bindings(props: &FooterProps) -> [(&'static str, Vec<Entry>); 3] {
         Entry::key(key_hint::plain(K::Char('!')), "Shell command"),
         Entry::hint(hints.insert_newline, "New line"),
         Entry::key(paste, "Paste image"),
+        Entry::key(key_hint::ctrl_shift(K::Char('c')), "Copy draft"),
         Entry::hint(hints.external_editor, "External editor"),
         Entry::hint(hints.history_search, "Search history"),
         Entry {

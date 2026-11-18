@@ -48,10 +48,10 @@ pub(super) struct CachedWorkspaceRouting {
 }
 
 pub(super) struct AccountRead {
-    account_state: ProviderAccountState,
+    pub(super) account_state: ProviderAccountState,
     user_id: Option<String>,
     pub(super) workspace_routing: Option<WorkspaceRouting>,
-    workspace_name: Option<String>,
+    pub(super) workspace_name: Option<String>,
 }
 
 #[derive(Debug, PartialEq, Eq, thiserror::Error)]
