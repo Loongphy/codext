@@ -662,12 +662,23 @@ impl App {
         self.chat_widget.forget_inherited_quota_provider();
         self.chat_widget.statusline_disconnected = false;
         self.chat_widget.refresh_status_line();
+        let previous_identity = AuthIdentity::from_chat_widget(&self.chat_widget);
         self.chat_widget.update_account_state(
             bootstrap.status_account_display,
             bootstrap.plan_type,
             bootstrap.has_chatgpt_account,
             matches!(bootstrap.auth_mode, Some(TelemetryAuthMode::Chatgpt)),
         );
+        // A restarted daemon may come back under a different account (for
+        // example after codex-auth's restart fallback); surface the switch the
+        // same way a watcher-driven reload would.
+        if self.finish_auth_identity_transition(&previous_identity) {
+            self.chat_widget.on_auth_reload_completed(true);
+        } else if AuthIdentity::from_chat_widget(&self.chat_widget).is_unresolved() {
+            // The bootstrap display has no email yet; the follow-up read
+            // resolves the identity and can still detect the switch.
+            self.refresh_account_email(app_server, Some(previous_identity));
+        }
         if self.chat_widget.has_chatgpt_account() {
             crate::security_setup::prefetch(
                 &self.config,

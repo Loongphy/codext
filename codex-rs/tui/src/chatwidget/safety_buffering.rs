@@ -86,13 +86,17 @@ impl ChatWidget {
     }
 
     pub(crate) fn prepare_safety_buffered_retry_submission(&mut self, prompt: UserMessage) {
-        self.last_rendered_user_message_display = None;
+        self.pending_local_user_message_echo = None;
         self.finalize_turn();
         self.safety_buffering_prompt = Some(prompt);
         self.input_queue.user_turn_pending_start = true;
     }
 
     pub(crate) fn commit_safety_buffered_retry_submission(&mut self, display: UserMessageDisplay) {
+        self.pending_local_user_message_echo = Some(PendingLocalUserMessageEcho {
+            display: display.clone(),
+            turn_id: None,
+        });
         self.on_user_message_display(display);
     }
 

@@ -57,6 +57,7 @@ mod app_cmd;
 mod app_server_proxy;
 mod config_override_args;
 mod daemon_install;
+mod daemon_reload_auth;
 mod daemon_telemetry;
 #[cfg(any(target_os = "macos", target_os = "windows"))]
 mod desktop_app;
@@ -698,6 +699,9 @@ enum AppServerDaemonSubcommand {
     /// Stop the local app server daemon.
     Stop,
 
+    /// [codext] Ask the running daemon to reload auth.json from storage.
+    ReloadAuth,
+
     /// Print local CLI and running app-server versions as JSON.
     Version,
 
@@ -821,7 +825,7 @@ fn run_update_action(
     }
     println!();
     let cmd_str = action.command_str();
-    println!("Updating Codex via `{cmd_str}`...");
+    println!("Updating Codext via `{cmd_str}`...");
     let status = {
         #[cfg(windows)]
         {
@@ -865,7 +869,7 @@ fn run_update_action(
     if !status.success() {
         anyhow::bail!("`{cmd_str}` failed with status {status}");
     }
-    println!("\n🎉 Update ran successfully! Please restart Codex.");
+    println!("\n🎉 Update ran successfully! Please restart Codext.");
     Ok(())
 }
 
@@ -898,7 +902,7 @@ fn run_update_command() -> anyhow::Result<()> {
     {
         let Some(action) = codex_tui::get_update_action() else {
             anyhow::bail!(
-                "Could not detect the Codex installation method. Please update manually: https://developers.openai.com/codex/cli/"
+                "Could not detect the Codext installation method. Please update manually: https://github.com/Loongphy/codext/releases/latest"
             );
         };
         run_update_action(action, /*cli_executable*/ None)
@@ -1462,6 +1466,9 @@ async fn dispatch_cli(
                     }
                     AppServerDaemonSubcommand::Stop => {
                         print_app_server_daemon_output(AppServerLifecycleCommand::Stop).await?;
+                    }
+                    AppServerDaemonSubcommand::ReloadAuth => {
+                        daemon_reload_auth::run_daemon_reload_auth().await?;
                     }
                     AppServerDaemonSubcommand::Version => {
                         print_app_server_daemon_output(AppServerLifecycleCommand::Version).await?;
@@ -2498,6 +2505,7 @@ fn app_server_subcommand_name(subcommand: Option<&AppServerSubcommand>) -> &'sta
                 "app-server daemon disable-remote-control"
             }
             AppServerDaemonSubcommand::Stop => "app-server daemon stop",
+            AppServerDaemonSubcommand::ReloadAuth => "app-server daemon reload-auth",
             AppServerDaemonSubcommand::Version => "app-server daemon version",
             AppServerDaemonSubcommand::PidUpdateLoop { .. } => "app-server daemon pid-update-loop",
         },

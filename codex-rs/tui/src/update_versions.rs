@@ -7,9 +7,18 @@ pub(crate) fn is_newer(latest: &str, current: &str) -> Option<bool> {
 }
 
 #[cfg(any(not(debug_assertions), test))]
+pub(crate) fn is_newer_release(latest: &str, current: &str) -> Option<bool> {
+    // Codext release tags/npm versions carry a `-<sha>` suffix
+    // (`codext-v0.159.0-89c2fe4`); compare the base version only so same-base
+    // rebuilds are not treated as upgrades.
+    is_newer(latest.split('-').next().unwrap_or(latest), current)
+}
+
+#[cfg(any(not(debug_assertions), test))]
 pub(crate) fn extract_version_from_latest_tag(latest_tag_name: &str) -> anyhow::Result<String> {
     latest_tag_name
-        .strip_prefix("rust-v")
+        .strip_prefix("codext-v")
+        .or_else(|| latest_tag_name.strip_prefix("rust-v"))
         .map(str::to_owned)
         .ok_or_else(|| anyhow::anyhow!("Failed to parse latest tag name '{latest_tag_name}'"))
 }

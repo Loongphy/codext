@@ -455,6 +455,9 @@ impl MessageProcessor {
         let pending_thread_unloads = Arc::new(Mutex::new(HashMap::new()));
         let thread_watch_manager =
             crate::thread_status::ThreadWatchManager::new_with_outgoing(outgoing.clone());
+        // Serializes auth reloads against turn starts so an in-flight `turn/start` never
+        // observes a half-applied auth transition.
+        let auth_transition_lock = Arc::new(Mutex::new(()));
         let thread_list_state_permit = Arc::new(ThreadListState::default());
         let app_list_shutdown_token = CancellationToken::new();
         let request_serialization_queues = RequestSerializationQueues::default();
@@ -480,6 +483,8 @@ impl MessageProcessor {
             Arc::clone(&config),
             config_manager.clone(),
             Arc::clone(&model_catalog),
+            thread_watch_manager.clone(),
+            Arc::clone(&auth_transition_lock),
         );
         let apps_processor = AppsRequestProcessor::new(
             Arc::clone(&thread_manager),
@@ -557,7 +562,7 @@ impl MessageProcessor {
             Arc::clone(&thread_list_state_permit),
         );
         let thread_processor = ThreadRequestProcessor::new(
-            auth_manager,
+            auth_manager.clone(),
             Arc::clone(&thread_manager),
             outgoing.clone(),
             arg0_paths.clone(),
@@ -567,6 +572,7 @@ impl MessageProcessor {
             Arc::clone(&pending_thread_unloads),
             thread_state_manager.clone(),
             thread_watch_manager.clone(),
+            Arc::clone(&auth_transition_lock),
             Arc::clone(&thread_list_state_permit),
             thread_goal_processor.clone(),
             state_db.clone(),
@@ -577,6 +583,7 @@ impl MessageProcessor {
             sample_responses,
         );
         let turn_processor = TurnRequestProcessor::new(
+            auth_manager,
             Arc::clone(&thread_manager),
             outgoing.clone(),
             analytics_events_client.clone(),
@@ -585,6 +592,7 @@ impl MessageProcessor {
             pending_thread_unloads,
             thread_state_manager,
             thread_watch_manager,
+            auth_transition_lock,
             Arc::clone(&skills_watcher),
             turn_cost_worker.as_ref().map(TurnCostWorker::handle),
         );
@@ -2033,6 +2041,9 @@ impl MessageProcessor {
             }
             ClientRequest::GetAccount { params, .. } => {
                 self.account_processor.get_account(params).await
+            }
+            ClientRequest::ReloadAccount { .. } => {
+                self.account_processor.reload_account().await
             }
             ClientRequest::GetAuthStatus { params, .. } => {
                 self.account_processor.get_auth_status(params).await

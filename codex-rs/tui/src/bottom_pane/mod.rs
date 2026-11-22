@@ -2462,7 +2462,7 @@ impl BottomPane {
         &'a self,
         options: ComposerRenderOptions<'a>,
     ) -> RenderableItem<'a> {
-        self.renderable_for_views(options, &self.view_stack)
+        self.renderable_for_views(options, &self.view_stack, /*composer_header*/ None)
     }
 
     pub(crate) fn centered_dialog(&self) -> Option<CenteredView<'_>> {
@@ -2473,9 +2473,12 @@ impl BottomPane {
             .map(CenteredView)
     }
 
-    pub(crate) fn backdrop_with_options<'a>(
+    /// Same as the backdrop view-stack renderable, with an optional header row
+    /// rendered between the status/preview stack and the composer.
+    pub(crate) fn backdrop_with_options_and_header<'a>(
         &'a self,
         mut options: ComposerRenderOptions<'a>,
+        composer_header: Option<RenderableItem<'a>>,
     ) -> RenderableItem<'a> {
         let views = if self.centered_dialog().is_some() {
             options.is_dialog_backdrop = true;
@@ -2483,13 +2486,14 @@ impl BottomPane {
         } else {
             &self.view_stack
         };
-        self.renderable_for_views(options, views)
+        self.renderable_for_views(options, views, composer_header)
     }
 
     fn renderable_for_views<'a>(
         &'a self,
         mut options: ComposerRenderOptions<'a>,
         views: &'a [Box<dyn BottomPaneView>],
+        composer_header: Option<RenderableItem<'a>>,
     ) -> RenderableItem<'a> {
         if self.warnings_active()
             && let Some(warnings) = &self.warnings_view
@@ -2621,6 +2625,9 @@ impl BottomPane {
                 flex.into()
             };
             flex2.push(/*flex*/ 1, RenderableItem::Owned(above_composer));
+            if let Some(composer_header) = composer_header {
+                flex2.push(/*flex*/ 0, composer_header);
+            }
             let composer: RenderableItem<'_> = if let Some(questions) = question_editor {
                 RenderableItem::Borrowed(questions.as_ref())
             } else if options.max_height.is_none()
