@@ -570,6 +570,7 @@ impl ChatWidget {
             &self.current_workspace_roots,
         );
         self.current_cwd = cwd;
+        self.sync_status_header_git_status_poller();
         self.config.model_provider_id = settings.model_provider.clone();
         self.set_daybreak_enabled(self.daybreak_enabled);
         self.set_service_tier(settings.service_tier.clone());

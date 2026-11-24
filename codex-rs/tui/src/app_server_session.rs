@@ -74,6 +74,7 @@ use codex_app_server_protocol::MemoryResetResponse;
 use codex_app_server_protocol::Model as ApiModel;
 use codex_app_server_protocol::NewThreadModelDefaults;
 use codex_app_server_protocol::RateLimitSnapshot;
+use codex_app_server_protocol::ReloadAccountResponse;
 use codex_app_server_protocol::RequestId;
 use codex_app_server_protocol::ReviewDelivery;
 use codex_app_server_protocol::ReviewStartParams;
@@ -1125,6 +1126,21 @@ impl AppServerSession {
             })
             .await
             .map_err(|err| bootstrap_request_error("account/read failed", err))
+    }
+
+    /// Reload auth from storage and return the refreshed account snapshot.
+    ///
+    /// Used by the TUI auth watcher to pick up `auth.json` updates without
+    /// restarting the app-server.
+    pub(crate) async fn reload_account_from_storage(&mut self) -> Result<ReloadAccountResponse> {
+        let account_request_id = self.next_request_id();
+        self.request_handle
+            .request_typed(ClientRequest::ReloadAccount {
+                request_id: account_request_id,
+                params: None,
+            })
+            .await
+            .wrap_err("account/reload failed while reloading auth from storage")
     }
 
     pub(crate) async fn next_event(&mut self) -> Option<AppServerSessionEvent> {
@@ -2494,6 +2510,42 @@ pub(crate) fn status_account_display_from_auth_mode(
         | Some(AuthMode::BedrockApiKey)
         | Some(AuthMode::BedrockAccessKeys) => None,
         None => None,
+    }
+}
+
+/// Derive the TUI account-display state from an app-server `ReloadAccountResponse`.
+///
+/// Returns the status account display, plan type, whether the account is a
+/// ChatGPT account, and whether it has Codex-backend auth (used for rate-limit
+/// polling).
+pub(crate) fn account_state_from_reload_account_response(
+    account: &ReloadAccountResponse,
+) -> (
+    Option<StatusAccountDisplay>,
+    Option<codex_protocol::account::PlanType>,
+    bool,
+    bool,
+) {
+    match account.account.as_ref() {
+        Some(Account::ApiKey {}) => (Some(StatusAccountDisplay::ApiKey), None, false, false),
+        Some(Account::Chatgpt {
+            email,
+            plan_type,
+            workspace_name,
+        }) => (
+            Some(StatusAccountDisplay::ChatGpt {
+                email: email.clone(),
+                plan: Some(plan_type_display_name(*plan_type)),
+                workspace: workspace_display(workspace_name.clone(), /*routing*/ None),
+            }),
+            Some(*plan_type),
+            true,
+            true,
+        ),
+        Some(Account::AmazonBedrock { .. }) | Some(Account::Gcp {}) => {
+            (None, None, false, false)
+        }
+        None => (None, None, false, false),
     }
 }
 
